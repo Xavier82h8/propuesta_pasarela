@@ -1,94 +1,10 @@
-<?php
-session_start();
-
-// Habilitar errores para depuración (eliminar en producción)
-ini_set('display_errors', 1);
-ini_set('display_startup_errors', 1);
-error_reporting(E_ALL);
-
-// Requerir la librería de Stripe y funciones
-// Asegúrate de que las rutas a estos archivos sean correctas
-require 'vendor/autoload.php';
-use Stripe\Stripe;
-
-// Configuración de claves de Stripe
-$stripeLiveSecretKey = getenv('STRIPE_LIVE_SECRET_KEY') ?: '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';
-$stripeLivePublishableKey = getenv('STRIPE_LIVE_PUBLISHABLE_KEY') ?: 'pk_live_51R76cwH0kpgdEo6UfUYi7RSqtUEdXjmQENykmNIVb9M5wdDpNQQWYoOgnqZKSqb2YbSTLbqKZ0ooy6A2RxVrKMHP00aXXfV7EG';
-
-Stripe::setApiKey($stripeLiveSecretKey);
-
-// Definición de los IDs de precios de Stripe
-$priceIds = [
-    'basico' => ['mensual' => 'price_1S6GZtH0kpgdEo6U0tTbmK07', 'anual' => 'price_1RGekOH0kpgdEo6UTK8saFZ2'],
-    'profesional' => ['mensual' => 'price_1S6GaKH0kpgdEo6UGdIKRfQc', 'anual' => 'price_1S6GfpH0kpgdEo6U3WQkT6mS'],
-    'empresarial' => ['mensual' => 'price_1S6GalH0kpgdEo6UVlBbV3ka', 'anual' => 'price_1S6GgmH0kpgdEo6U0oz70klC']
-];
-
-// Obtener y normalizar los parámetros de la URL
-$plan = strtolower($_GET['plan'] ?? 'empresarial'); // Default a empresarial si no se especifica
-$period = strtolower($_GET['period'] ?? 'mensual');
-$currency = strtolower($_GET['currency'] ?? 'mxn');
-
-if ($period === 'monthly') $period = 'mensual';
-if ($period === 'annual') $period = 'anual';
-
-// Redirigir si el plan es básico (gratuito)
-if ($plan === 'basico') {
-    $userId = $_SESSION['usuario_id'] ?? 'user123';
-    $userEmail = $_SESSION['usuario_email'] ?? '';
-    header("Location: https://yopracticando.com/activate_free_plan.php?plan=$plan&period=$period&user_id=" . urlencode($userId) . "&email=" . urlencode($userEmail));
-    exit();
-}
-
-// Validar que los parámetros sean correctos
-if (!array_key_exists($plan, $priceIds) || !in_array($period, ['mensual', 'anual']) || $currency !== 'mxn') {
-    header("Location: https://yopracticando.com/planes.php?error=invalid_plan");
-    exit();
-}
-
-// Obtener el precio desde Stripe para mostrarlo
-try {
-    $priceId = $priceIds[$plan][$period];
-    $price = \Stripe\Price::retrieve($priceId);
-    $displayPrice = '$' . number_format($price->unit_amount / 100, 2);
-    $priceAmount = $price->unit_amount;
-    $displayCurrency = strtoupper($currency);
-} catch (\Stripe\Exception\ApiErrorException $e) {
-    // Manejar error si el Price ID no existe en Stripe
-    error_log("Stripe API error: " . $e->getMessage());
-    header("Location: https://yopracticando.com/planes.php?error=price_not_found");
-    exit();
-}
-
-$periodText = ($period === 'anual') ? 'Anual' : 'Mensual';
-$planName = ucfirst($plan);
-
-// Pre-llenar datos del usuario desde la sesión
-$_SESSION['usuario_nombre'] = $_SESSION['usuario_nombre'] ?? '';
-$_SESSION['usuario_email'] = $_SESSION['usuario_email'] ?? '';
-$_SESSION['usuario_telefono'] = $_SESSION['usuario_telefono'] ?? '';
-$_SESSION['usuario_compania'] = $_SESSION['usuario_compania'] ?? '';
-$_SESSION['usuario_direccion'] = $_SESSION['usuario_direccion'] ?? '';
-$_SESSION['usuario_pais'] = $_SESSION['usuario_pais'] ?? '🇲🇽 México'; // Default a México
-
-// Guardar detalles del plan en sesión para el backend
-$_SESSION['plan'] = $plan;
-$_SESSION['period'] = $period;
-$_SESSION['price_id'] = $priceId;
-$_SESSION['amount'] = $priceAmount;
-$_SESSION['currency'] = $currency;
-
-?>
 <!DOCTYPE html>
 <html lang="es">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Completa tu suscripción - YoPracticando</title>
-    <!-- Stripe.js -->
-    <script src="https://js.stripe.com/v3/"></script>
-    <!-- Font Awesome for icons -->
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+    <title>Formulario de Pago Mejorado</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <style>
         :root {
             --primary-blue: #4285f4;
@@ -98,7 +14,11 @@ $_SESSION['currency'] = $currency;
             --error-red: #ea4335;
             --warning-yellow: #fbbc05;
         }
-        * { margin: 0; padding: 0; box-sizing: border-box; }
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
         body {
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
             background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
@@ -107,237 +27,1066 @@ $_SESSION['currency'] = $currency;
             position: relative;
             overflow-x: hidden;
         }
-        .container { max-width: 1200px; margin: 0 auto; display: grid; grid-template-columns: 1fr 420px; gap: 32px; position: relative; z-index: 1; }
+        body::before {
+            content: '';
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background:
+                radial-gradient(circle at 20% 30%, rgba(102, 126, 234, 0.4) 0%, transparent 50%),
+                radial-gradient(circle at 80% 70%, rgba(118, 75, 162, 0.4) 0%, transparent 50%);
+            animation: bgPulse 15s ease-in-out infinite;
+            pointer-events: none;
+            z-index: 0;
+        }
+        @keyframes bgPulse {
+            0%, 100% { opacity: 0.5; }
+            50% { opacity: 0.8; }
+        }
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            display: grid;
+            grid-template-columns: 1fr 420px;
+            gap: 32px;
+            position: relative;
+            z-index: 1;
+        }
         .glass-card {
             background: rgba(255, 255, 255, 0.95);
             backdrop-filter: blur(40px) saturate(180%);
             border-radius: 28px;
             border: 1px solid rgba(255, 255, 255, 0.8);
-            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.15), 0 8px 16px rgba(0, 0, 0, 0.1), inset 0 1px 0 rgba(255, 255, 255, 1);
+            box-shadow:
+                0 20px 60px rgba(0, 0, 0, 0.15),
+                0 8px 16px rgba(0, 0, 0, 0.1),
+                inset 0 1px 0 rgba(255, 255, 255, 1);
             animation: slideUp 0.8s cubic-bezier(0.16, 1, 0.3, 1);
             transition: transform 0.3s ease, box-shadow 0.3s ease;
         }
-        @keyframes slideUp { from { opacity: 0; transform: translateY(60px); } to { opacity: 1; transform: translateY(0); } }
-        .left-section { padding: 56px; }
-        .main-title { font-size: 36px; font-weight: 800; margin-bottom: 16px; color: var(--dark-text); letter-spacing: -1px; }
-        .subtitle { font-size: 17px; color: #5f6368; margin-bottom: 48px; line-height: 1.6; }
-        .progress-container { margin-bottom: 48px; padding: 32px; background: linear-gradient(135deg, rgba(66, 133, 244, 0.05) 0%, rgba(52, 168, 83, 0.05) 100%); border-radius: 20px; border: 1px solid rgba(66, 133, 244, 0.1); }
-        .steps { display: flex; justify-content: space-between; }
-        .step { display: flex; flex-direction: column; align-items: center; gap: 12px; flex: 1; }
-        .step-icon { width: 56px; height: 56px; border-radius: 50%; background: white; display: flex; align-items: center; justify-content: center; color: #9aa0a6; font-size: 22px; border: 3px solid var(--light-gray); transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1); }
-        .step.completed .step-icon { background: var(--primary-green); border-color: var(--primary-green); color: white; }
-        .step.active .step-icon { background: linear-gradient(135deg, var(--primary-blue) 0%, var(--primary-green) 100%); border-color: var(--primary-blue); color: white; transform: scale(1.1); }
-        .step-label { font-size: 14px; font-weight: 600; color: #5f6368; }
-        .step.active .step-label { color: var(--dark-text); font-weight: 700; }
-        .step-connector { height: 6px; background: rgba(224, 224, 224, 0.5); border-radius: 3px; position: relative; margin: -42px auto 24px; max-width: calc(100% - 180px); }
-        .step-connector-fill { height: 100%; background: linear-gradient(90deg, var(--primary-blue) 0%, var(--primary-green) 100%); border-radius: 3px; width: 0%; transition: width 0.6s cubic-bezier(0.4, 0, 0.2, 1); }
-        .section { background: white; border-radius: 24px; padding: 40px; margin-bottom: 28px; }
-        .section-header { display: flex; align-items: center; gap: 16px; margin-bottom: 32px; }
-        .section-icon { width: 48px; height: 48px; border-radius: 14px; background: linear-gradient(135deg, #f1f3f4 0%, #e8eaed 100%); display: flex; align-items: center; justify-content: center; color: #5f6368; font-size: 20px; }
-        .section-header.completed .section-icon { background: linear-gradient(135deg, #e6f4ea 0%, #d4ede0 100%); color: var(--primary-green); }
-        .section-title { font-size: 22px; font-weight: 700; color: var(--dark-text); flex-grow: 1; }
-        .section-complete-badge { background: linear-gradient(135deg, #e6f4ea 0%, #d4ede0 100%); color: var(--primary-green); padding: 8px 16px; border-radius: 24px; font-size: 14px; font-weight: 600; display: flex; align-items: center; gap: 8px; opacity: 0; transform: scale(0.8); transition: all 0.3s ease; }
-        .section-header.completed .section-complete-badge { opacity: 1; transform: scale(1); }
-        .form-row { display: flex; gap: 24px; margin-bottom: 24px; }
-        .input-group { flex: 1; position: relative; }
-        .input-label { font-size: 14px; font-weight: 600; color: #5f6368; margin-bottom: 10px; display: block; }
-        .input-field, .card-input-field { width: 100%; height: 56px; border: 2px solid #dadce0; border-radius: 14px; padding: 0 18px; font-size: 16px; color: var(--dark-text); transition: all 0.3s ease; background: white; font-weight: 500; }
-        .card-input-field { display: flex; align-items: center; padding-right: 48px; }
-        .input-field:focus, .card-input-field:focus-within { outline: none; border-color: var(--primary-blue); box-shadow: 0 0 0 4px rgba(66, 133, 244, 0.15); transform: translateY(-2px); }
-        .input-field.invalid, .card-input-field.invalid { border-color: var(--error-red) !important; }
-        .card-container { margin-bottom: 40px; perspective: 1500px; }
-        .card-flip-container { position: relative; width: 100%; max-width: 460px; height: 290px; margin: 0 auto 40px; transition: transform 0.7s cubic-bezier(0.4, 0, 0.2, 1); transform-style: preserve-3d; }
-        .card-flip-container.flipped { transform: rotateY(180deg); }
-        .card-face { position: absolute; width: 100%; height: 100%; backface-visibility: hidden; border-radius: 24px; padding: 32px; box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3); overflow: hidden; }
-        .card-front { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); }
-        .card-front.visa { background: linear-gradient(135deg, #1A1F71 0%, #0D47A1 100%); }
-        .card-front.mastercard { background: linear-gradient(135deg, #EB001B 0%, #F79E1B 50%, #FF5F00 100%); }
-        .card-front.amex { background: linear-gradient(135deg, #006FCF 0%, #0077CC 50%, #00A4E0 100%); }
-        .card-back { background: linear-gradient(135deg, #434343 0%, #000000 100%); transform: rotateY(180deg); }
-        .card-visual { height: 100%; display: flex; flex-direction: column; justify-content: space-between; position: relative; z-index: 1; }
-        .card-logo-container { display: flex; justify-content: flex-end; font-size: 36px; color: white; }
-        .card-chip { width: 54px; height: 44px; background: linear-gradient(135deg, #FFD700 0%, #FFA500 50%, #B8860B 100%); border-radius: 10px; }
-        .card-number-display { font-size: 26px; letter-spacing: 4px; font-weight: 600; color: white; margin: 24px 0; font-family: 'Courier New', monospace; }
-        .card-details-display { display: flex; justify-content: space-between; }
-        .card-detail-label { font-size: 10px; text-transform: uppercase; color: white; }
-        .card-detail-value { font-size: 17px; font-weight: 700; color: white; margin-top: 6px; text-transform: uppercase; }
-        .card-magnetic-strip { width: 100%; height: 56px; background: #000; margin: 24px 0; }
-        .card-cvc-display { display: flex; justify-content: flex-end; align-items: center; gap: 14px; background: white; padding: 12px 24px; border-radius: 10px; margin-top: 36px; }
-        .card-input-grid { display: grid; gap: 24px; }
-        .card-input-group { position: relative; }
-        .card-input-label { font-size: 14px; font-weight: 600; color: #5f6368; margin-bottom: 10px; display: block; }
-        .card-input-row { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; }
-        .card-brand-icon { position: absolute; right: 18px; top: 12px; font-size: 28px; opacity: 0; transition: all 0.3s ease; }
-        .card-brand-icon.active { opacity: 1; }
-        .card-error-message { color: var(--error-red); font-size: 13px; font-weight: 600; margin-top: 8px; display: none; min-height: 1em; }
-        .card-error-message.show { display: block; }
-        .right-section { position: sticky; top: 40px; height: fit-content; }
-        .summary-card { padding: 40px; }
-        .summary-title { font-size: 22px; font-weight: 700; color: var(--dark-text); margin-bottom: 28px; }
-        .plan-badge { background: linear-gradient(135deg, var(--primary-blue) 0%, var(--primary-green) 100%); border-radius: 20px; padding: 28px; color: white; margin-bottom: 28px; }
-        .plan-name { font-size: 16px; margin-bottom: 12px; font-weight: 600; }
-        .plan-price { font-size: 42px; font-weight: 800; margin-bottom: 6px; }
-        .summary-item { display: flex; justify-content: space-between; margin-bottom: 18px; font-size: 15px; }
-        .summary-item.total { font-size: 22px; font-weight: 700; color: var(--dark-text); padding-top: 20px; border-top: 2px solid rgba(0, 0, 0, 0.1); margin-top: 12px; }
-        .pay-button { width: 100%; height: 60px; background: linear-gradient(135deg, var(--primary-blue) 0%, var(--primary-green) 100%); border: none; border-radius: 14px; color: white; font-size: 17px; font-weight: 700; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 14px; transition: all 0.3s ease; }
-        .pay-button:disabled { opacity: 0.7; cursor: not-allowed; }
-        .spinner { width: 22px; height: 22px; border: 3px solid rgba(255, 255, 255, 0.3); border-top-color: white; border-radius: 50%; animation: spin 0.8s linear infinite; }
-        @keyframes spin { to { transform: rotate(360deg); } }
-        .success-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(255, 255, 255, 0.98); backdrop-filter: blur(20px); display: none; align-items: center; justify-content: center; z-index: 2000; }
-        .success-overlay.active { display: flex; }
-        .success-message { text-align: center; }
-        .success-icon { width: 100px; height: 100px; background: linear-gradient(135deg, var(--primary-green) 0%, #2d8e44 100%); border-radius: 50%; display: flex; align-items: center; justify-content: center; color: white; font-size: 50px; margin: 0 auto 28px; }
-        .success-title { font-size: 32px; font-weight: 800; color: var(--dark-text); margin-bottom: 16px; }
-        .error-modal { background: white; border-radius: 24px; padding: 48px; max-width: 440px; text-align: center; box-shadow: 0 24px 72px rgba(0, 0, 0, 0.3); opacity: 0; transform: scale(0.85); transition: all 0.3s ease; }
-        #error-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); display: none; align-items: center; justify-content: center; z-index: 2000; }
-        #error-overlay.active { display: flex; }
-        #error-modal.active { opacity: 1; transform: scale(1); }
-        .error-icon { width: 100px; height: 100px; background: linear-gradient(135deg, #fef7f6 0%, #fce8e6 100%); border-radius: 50%; display: flex; align-items: center; justify-content: center; color: var(--error-red); font-size: 50px; margin: 0 auto 24px; }
-        .error-title { font-size: 26px; font-weight: 700; color: var(--dark-text); margin-bottom: 16px; }
-        .error-text { font-size: 16px; color: #5f6368; margin-bottom: 28px; line-height: 1.6; }
-        .error-button { background: linear-gradient(135deg, var(--primary-blue) 0%, #3367d6 100%); border: none; border-radius: 12px; padding: 16px 40px; font-size: 16px; font-weight: 700; color: white; cursor: pointer; }
-        .validation-alert { position: fixed; bottom: 40px; left: 50%; transform: translateX(-50%) translateY(120px); background: var(--dark-text); color: white; padding: 18px 28px; border-radius: 14px; display: flex; align-items: center; gap: 14px; box-shadow: 0 12px 32px rgba(0, 0, 0, 0.4); z-index: 1500; opacity: 0; transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1); }
-        .validation-alert.show { transform: translateX(-50%) translateY(0); opacity: 1; }
+        .glass-card:hover {
+            transform: translateY(-4px);
+            box-shadow:
+                0 24px 70px rgba(0, 0, 0, 0.2),
+                0 12px 24px rgba(0, 0, 0, 0.15),
+                inset 0 1px 0 rgba(255, 255, 255, 1);
+        }
+        @keyframes slideUp {
+            from {
+                opacity: 0;
+                transform: translateY(60px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+        .left-section {
+            padding: 56px;
+        }
+        .logo {
+            display: flex;
+            align-items: center;
+            gap: 16px;
+            margin-bottom: 48px;
+        }
+        .logo-icon {
+            width: 60px;
+            height: 60px;
+            background: linear-gradient(135deg, var(--primary-blue) 0%, var(--primary-green) 100%);
+            border-radius: 18px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            font-size: 30px;
+            font-weight: bold;
+            box-shadow:
+                0 12px 24px rgba(66, 133, 244, 0.3),
+                0 6px 12px rgba(52, 168, 83, 0.2);
+            animation: logoFloat 3s ease-in-out infinite;
+        }
+        @keyframes logoFloat {
+            0%, 100% { transform: translateY(0px); }
+            50% { transform: translateY(-8px); }
+        }
+        .logo-text {
+            font-size: 28px;
+            font-weight: 800;
+            background: linear-gradient(135deg, var(--primary-blue) 0%, var(--primary-green) 100%);
+            -webkit-background-clip: text;
+            background-clip: text;
+            -webkit-text-fill-color: transparent;
+            letter-spacing: -0.5px;
+        }
+        .main-title {
+            font-size: 36px;
+            font-weight: 800;
+            margin-bottom: 16px;
+            color: var(--dark-text);
+            letter-spacing: -1px;
+        }
+        .subtitle {
+            font-size: 17px;
+            color: #5f6368;
+            margin-bottom: 48px;
+            line-height: 1.6;
+        }
+        .section {
+            background: white;
+            border-radius: 24px;
+            padding: 40px;
+            margin-bottom: 28px;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08);
+            border: 1px solid rgba(0, 0, 0, 0.05);
+            transition: all 0.3s ease;
+        }
+        .section:hover {
+            box-shadow: 0 8px 30px rgba(0, 0, 0, 0.12);
+            transform: translateY(-2px);
+        }
+        .section-title {
+            font-size: 22px;
+            font-weight: 700;
+            color: var(--dark-text);
+            margin-bottom: 32px;
+        }
+        .form-row {
+            display: flex;
+            gap: 24px;
+            margin-bottom: 24px;
+        }
+        .input-group {
+            flex: 1;
+            position: relative;
+        }
+        .input-label {
+            font-size: 14px;
+            font-weight: 600;
+            color: #5f6368;
+            margin-bottom: 10px;
+            display: block;
+        }
+        .input-field {
+            width: 100%;
+            height: 56px;
+            border: 2px solid #dadce0;
+            border-radius: 14px;
+            padding: 0 48px 0 18px;
+            font-size: 16px;
+            color: var(--dark-text);
+            transition: all 0.3s ease;
+            background: white;
+            font-weight: 500;
+        }
+        .input-field:focus {
+            outline: none;
+            border-color: var(--primary-blue);
+            box-shadow: 0 0 0 4px rgba(66, 133, 244, 0.15);
+        }
+        .input-field.completed {
+            border-color: var(--primary-green);
+            background: linear-gradient(135deg, #f8fbf8 0%, #f0f8f2 100%);
+        }
+        .input-field.invalid {
+            border-color: var(--error-red);
+            background: #fef7f6;
+            animation: shake 0.4s cubic-bezier(.36, .07, .19, .97);
+        }
+        @keyframes shake {
+            10%, 90% { transform: translate3d(-1px, 0, 0); }
+            20%, 80% { transform: translate3d(2px, 0, 0); }
+            30%, 50%, 70% { transform: translate3d(-3px, 0, 0); }
+            40%, 60% { transform: translate3d(3px, 0, 0); }
+        }
+        .input-icon {
+            position: absolute;
+            right: 18px;
+            top: 48px;
+            color: var(--primary-green);
+            opacity: 0;
+            transform: scale(0.5) rotate(-180deg);
+            transition: all 0.4s cubic-bezier(0.68, -0.55, 0.265, 1.55);
+            font-size: 18px;
+        }
+        .input-field.completed + .input-icon {
+            opacity: 1;
+            transform: scale(1) rotate(0deg);
+        }
+        .custom-select {
+            position: relative;
+        }
+        .select-trigger {
+            width: 100%;
+            height: 56px;
+            border: 2px solid #dadce0;
+            border-radius: 14px;
+            padding: 0 18px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            cursor: pointer;
+            background: white;
+            transition: all 0.3s ease;
+            font-weight: 500;
+        }
+        .select-trigger:hover {
+            border-color: var(--primary-blue);
+            box-shadow: 0 4px 12px rgba(66, 133, 244, 0.1);
+        }
+        .select-trigger.active {
+            border-color: var(--primary-blue);
+            box-shadow: 0 0 0 4px rgba(66, 133, 244, 0.15);
+        }
+        .select-trigger.completed {
+            border-color: var(--primary-green);
+            background: linear-gradient(135deg, #f8fbf8 0%, #f0f8f2 100%);
+        }
+        .selected-option {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            font-size: 16px;
+            color: #5f6368;
+        }
+        .select-trigger.completed .selected-option {
+            color: var(--dark-text);
+            font-weight: 600;
+        }
+        .select-options {
+            position: absolute;
+            top: calc(100% + 8px);
+            left: 0;
+            width: 100%;
+            background: white;
+            border-radius: 14px;
+            box-shadow: 0 12px 40px rgba(0, 0, 0, 0.2);
+            z-index: 1000;
+            max-height: 0;
+            overflow: hidden;
+            opacity: 0;
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            border: 2px solid var(--primary-blue);
+        }
+        .select-options.active {
+            max-height: 320px;
+            opacity: 1;
+            padding: 8px;
+            overflow-y: auto;
+        }
+        .select-option {
+            padding: 14px 16px;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            border-radius: 10px;
+            font-weight: 500;
+        }
+        .select-option:hover {
+            background: linear-gradient(135deg, rgba(66, 133, 244, 0.1) 0%, rgba(52, 168, 83, 0.1) 100%);
+            transform: translateX(4px);
+        }
+        .phone-input-wrapper {
+            display: flex;
+            gap: 12px;
+        }
+        .phone-code {
+            width: 100px;
+            height: 56px;
+            border: 2px solid #dadce0;
+            border-radius: 14px;
+            padding: 0 12px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: #f8f9fa;
+            font-weight: 600;
+            color: var(--dark-text);
+        }
+        .phone-input {
+            flex: 1;
+        }
+        .phone-format-hint {
+            font-size: 12px;
+            color: #5f6368;
+            margin-top: 6px;
+            font-style: italic;
+        }
+
+        /* CORRECCIÓN DEL FLIP DE LA TARJETA */
+        .card-container {
+            margin-bottom: 40px;
+            perspective: 1500px;
+            /* Altura fija para evitar cambios */
+            height: 290px;
+        }
+        .card-flip-container {
+            position: relative;
+            width: 100%;
+            max-width: 460px;
+            height: 100%; /* Usa el 100% del contenedor padre */
+            margin: 0 auto;
+            transition: transform 0.7s cubic-bezier(0.4, 0, 0.2, 1);
+            transform-style: preserve-3d;
+            /* CRÍTICO: Eliminar cualquier transform que no sea rotateY */
+        }
+        .card-flip-container.flipped {
+            transform: rotateY(180deg);
+        }
+        .card-face {
+            position: absolute;
+            width: 100%;
+            height: 100%;
+            backface-visibility: hidden;
+            border-radius: 24px;
+            padding: 32px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+            overflow: hidden;
+            /* Asegurar que no haya movimiento vertical */
+            top: 0;
+            left: 0;
+        }
+        .card-front {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            position: relative;
+        }
+        .card-front::before {
+            content: '';
+            position: absolute;
+            top: -50%;
+            left: -50%;
+            width: 200%;
+            height: 200%;
+            background: radial-gradient(circle at center, rgba(255, 255, 255, 0.15) 0%, transparent 50%);
+            opacity: 0;
+            transition: opacity 0.3s ease;
+        }
+        .card-front:hover::before {
+            opacity: 1;
+            animation: cardShine 3s ease-in-out infinite;
+        }
+        @keyframes cardShine {
+            0% { transform: translate(-50%, -50%) rotate(0deg); }
+            100% { transform: translate(-50%, -50%) rotate(360deg); }
+        }
+        .card-front.visa {
+            background: linear-gradient(135deg, #1A1F71 0%, #0D47A1 100%);
+            animation: cardEntry 0.6s ease-out;
+            box-shadow: 0 20px 60px rgba(26, 31, 113, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.1);
+        }
+        .card-front.mastercard {
+            background: linear-gradient(135deg, #EB001B 0%, #F79E1B 50%, #FF5F00 100%);
+            animation: cardEntry 0.6s ease-out;
+            box-shadow: 0 20px 60px rgba(235, 0, 27, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.15);
+        }
+        .card-front.nu {
+            background: linear-gradient(135deg, #820AD1 0%, #5E008F 50%, #450066 100%);
+            position: relative;
+            animation: cardEntry 0.6s ease-out;
+            border: 1px solid rgba(255, 255, 255, 0.15);
+            box-shadow: 0 20px 60px rgba(130, 10, 209, 0.6), inset 0 1px 0 rgba(255, 255, 255, 0.2);
+        }
+        @keyframes cardEntry {
+            0% {
+                filter: brightness(1);
+            }
+            50% {
+                filter: brightness(1.2);
+            }
+            100% {
+                filter: brightness(1);
+            }
+        }
+        .card-front.card-invalid {
+            animation: cardShakeError 0.5s cubic-bezier(.36, .07, .19, .97);
+        }
+        @keyframes cardShakeError {
+            10%, 90% { transform: translate3d(-3px, 0, 0); }
+            20%, 80% { transform: translate3d(5px, 0, 0); }
+            30%, 50%, 70% { transform: translate3d(-7px, 0, 0); }
+            40%, 60% { transform: translate3d(7px, 0, 0); }
+        }
+        .card-back {
+            background: linear-gradient(135deg, #434343 0%, #000000 100%);
+            transform: rotateY(180deg);
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.4);
+        }
+        .card-back.visa {
+            background: linear-gradient(135deg, #1A1F71 0%, #0D47A1 100%);
+            box-shadow: 0 20px 60px rgba(26, 31, 113, 0.5);
+        }
+        .card-back.mastercard {
+            background: linear-gradient(135deg, #EB001B 0%, #F79E1B 50%, #FF5F00 100%);
+            box-shadow: 0 20px 60px rgba(235, 0, 27, 0.5);
+        }
+        .card-back.nu {
+            background: linear-gradient(135deg, #5E008F 0%, #3C005B 50%, #2A0044 100%);
+            box-shadow: 0 20px 60px rgba(94, 0, 143, 0.5);
+        }
+        .card-visual {
+            height: 100%;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            position: relative;
+            z-index: 1;
+        }
+        .card-logo-container {
+            display: flex;
+            justify-content: flex-end;
+            font-size: 36px;
+            color: white;
+            filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.3));
+        }
+        .card-chip {
+            width: 54px;
+            height: 44px;
+            background: linear-gradient(135deg, #FFD700 0%, #FFA500 50%, #B8860B 100%);
+            border-radius: 10px;
+            position: relative;
+            box-shadow:
+                inset 0 3px 6px rgba(255, 255, 255, 0.4),
+                inset 0 -3px 6px rgba(0, 0, 0, 0.4),
+                0 3px 10px rgba(0, 0, 0, 0.3);
+        }
+        .card-chip::before {
+            content: '';
+            position: absolute;
+            top: 8px;
+            left: 8px;
+            right: 8px;
+            bottom: 8px;
+            background:
+                repeating-linear-gradient(90deg, rgba(0, 0, 0, 0.15) 0px, rgba(0, 0, 0, 0.15) 1px, transparent 1px, transparent 4px),
+                repeating-linear-gradient(0deg, rgba(0, 0, 0, 0.15) 0px, rgba(0, 0, 0, 0.15) 1px, transparent 1px, transparent 4px);
+            border-radius: 6px;
+        }
+        .card-number-display {
+            font-size: 26px;
+            letter-spacing: 4px;
+            font-weight: 600;
+            color: white;
+            margin: 24px 0;
+            text-shadow: 0 3px 6px rgba(0, 0, 0, 0.4);
+            font-family: 'Courier New', monospace;
+        }
+        .card-details-display {
+            display: flex;
+            justify-content: space-between;
+        }
+        .card-detail-label {
+            font-size: 10px;
+            text-transform: uppercase;
+            opacity: 0.8;
+            color: white;
+            letter-spacing: 1px;
+            font-weight: 600;
+        }
+        .card-detail-value {
+            font-size: 17px;
+            font-weight: 700;
+            color: white;
+            margin-top: 6px;
+            text-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
+            text-transform: uppercase;
+        }
+        .card-magnetic-strip {
+            width: 100%;
+            height: 56px;
+            background: linear-gradient(180deg, #000 0%, #1a1a1a 50%, #000 100%);
+            margin: 24px 0;
+            box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.5);
+        }
+        .card-cvc-display {
+            display: flex;
+            justify-content: flex-end;
+            align-items: center;
+            gap: 14px;
+            background: white;
+            padding: 12px 24px;
+            border-radius: 10px;
+            margin-top: 36px;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+        }
+        .card-cvc-label {
+            font-size: 13px;
+            color: #5f6368;
+            font-weight: 600;
+        }
+        .card-cvc-value {
+            font-size: 20px;
+            font-weight: 700;
+            color: var(--dark-text);
+            font-family: 'Courier New', monospace;
+        }
+        .card-input-grid {
+            display: grid;
+            gap: 24px;
+        }
+        .card-input-row {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 24px;
+        }
+        .card-brand-icon {
+            position: absolute;
+            right: 18px;
+            top: 48px;
+            font-size: 32px;
+            opacity: 0.3;
+            transition: all 0.3s ease;
+        }
+        .card-brand-icon.active {
+            opacity: 1;
+            animation: iconPop 0.4s cubic-bezier(0.68, -0.55, 0.265, 1.55);
+        }
+        @keyframes iconPop {
+            0% { transform: scale(0); }
+            50% { transform: scale(1.2); }
+            100% { transform: scale(1); }
+        }
+        .right-section {
+            position: sticky;
+            top: 40px;
+            height: fit-content;
+        }
+        .summary-card {
+            padding: 40px;
+        }
+        .summary-title {
+            font-size: 22px;
+            font-weight: 700;
+            color: var(--dark-text);
+            margin-bottom: 28px;
+        }
+        .plan-badge {
+            background: linear-gradient(135deg, var(--primary-blue) 0%, var(--primary-green) 100%);
+            border-radius: 20px;
+            padding: 28px;
+            color: white;
+            margin-bottom: 28px;
+            box-shadow: 0 12px 32px rgba(66, 133, 244, 0.3);
+        }
+        .plan-name {
+            font-size: 16px;
+            margin-bottom: 12px;
+            opacity: 0.95;
+            font-weight: 600;
+        }
+        .plan-price {
+            font-size: 42px;
+            font-weight: 800;
+            margin-bottom: 6px;
+        }
+        .plan-period {
+            font-size: 15px;
+            opacity: 0.85;
+            font-weight: 500;
+        }
+        .summary-item {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 18px;
+            font-size: 15px;
+            color: #5f6368;
+            font-weight: 500;
+        }
+        .summary-item.total {
+            font-size: 22px;
+            font-weight: 700;
+            color: var(--dark-text);
+            padding-top: 20px;
+            border-top: 2px solid rgba(0, 0, 0, 0.1);
+            margin-top: 12px;
+        }
+        .pay-button {
+            width: 100%;
+            height: 60px;
+            background: linear-gradient(135deg, var(--primary-blue) 0%, var(--primary-green) 100%);
+            border: none;
+            border-radius: 14px;
+            color: white;
+            font-size: 17px;
+            font-weight: 700;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 14px;
+            transition: all 0.3s ease;
+            box-shadow: 0 12px 24px rgba(66, 133, 244, 0.3);
+        }
+        .pay-button:hover:not(:disabled) {
+            transform: translateY(-3px);
+            box-shadow: 0 16px 32px rgba(66, 133, 244, 0.4);
+        }
+        @media (max-width: 1024px) {
+            .container {
+                grid-template-columns: 1fr;
+            }
+            .right-section {
+                position: static;
+            }
+        }
+        @media (max-width: 768px) {
+            body {
+                padding: 20px 16px;
+            }
+            .left-section, .summary-card {
+                padding: 32px 24px;
+            }
+            .form-row, .card-input-row {
+                flex-direction: column;
+                grid-template-columns: 1fr;
+            }
+            .main-title {
+                font-size: 28px;
+            }
+        }
     </style>
 </head>
 <body>
     <div class="container">
-        <div class="left-section glass-card">
-            <!-- Contenido del formulario... -->
+        <div class="glass-card left-section">
+            <div class="logo">
+                <div class="logo-icon">💳</div>
+                <div class="logo-text">PayFlow</div>
+            </div>
+
+            <h1 class="main-title">Información de Pago</h1>
+            <p class="subtitle">Complete sus datos de forma segura para procesar el pago</p>
+
             <div class="section">
-                <div class="section-header" id="payment-header">
-                    <div class="section-icon"><i class="fas fa-credit-card"></i></div>
-                    <h2 class="section-title">Información de Pago</h2>
-                    <div class="section-complete-badge"><i class="fas fa-check"></i><span>Completo</span></div>
-                </div>
-                <div class="card-container">
-                    <!-- ... tarjeta 3D ... -->
-                </div>
-                <div class="card-input-grid">
-                    <div class="card-input-group">
-                        <label class="card-input-label">Número de tarjeta *</label>
-                        <div class="card-input-field" id="card-number-element"><div class="card-brand-icon" id="card-brand-icon"><i class="fas fa-credit-card"></i></div></div>
-                        <div class="card-error-message" id="cardNumber-error"></div>
+                <h2 class="section-title">Información Personal</h2>
+                <div class="form-row">
+                    <div class="input-group">
+                        <label class="input-label">Nombre Completo</label>
+                        <input type="text" class="input-field" id="fullName" placeholder="Juan Pérez">
+                        <i class="fas fa-check input-icon"></i>
                     </div>
-                    <div class="card-input-group">
-                        <label class="card-input-label">Nombre en la tarjeta *</label>
-                        <input type="text" class="input-field" id="card-name">
-                        <div class="card-error-message" id="cardName-error"></div>
+                    <div class="input-group">
+                        <label class="input-label">Correo Electrónico</label>
+                        <input type="email" class="input-field" id="email" placeholder="ejemplo@correo.com">
+                        <i class="fas fa-check input-icon"></i>
+                    </div>
+                </div>
+                <div class="form-row">
+                    <div class="input-group">
+                        <label class="input-label">País</label>
+                        <div class="custom-select">
+                            <div class="select-trigger" id="countryTrigger">
+                                <span class="selected-option">
+                                    <span>Seleccione su país</span>
+                                </span>
+                                <i class="fas fa-chevron-down"></i>
+                            </div>
+                            <div class="select-options" id="countryOptions">
+                                <div class="select-option" data-country="MX" data-code="+52" data-format="(###) ###-####">
+                                    <span>🇲🇽</span>
+                                    <span>México (+52)</span>
+                                </div>
+                                <div class="select-option" data-country="US" data-code="+1" data-format="(###) ###-####">
+                                    <span>🇺🇸</span>
+                                    <span>Estados Unidos (+1)</span>
+                                </div>
+                                <div class="select-option" data-country="ES" data-code="+34" data-format="### ### ###">
+                                    <span>🇪🇸</span>
+                                    <span>España (+34)</span>
+                                </div>
+                                <div class="select-option" data-country="AR" data-code="+54" data-format="(###) ####-####">
+                                    <span>🇦🇷</span>
+                                    <span>Argentina (+54)</span>
+                                </div>
+                                <div class="select-option" data-country="CO" data-code="+57" data-format="(###) ###-####">
+                                    <span>🇨🇴</span>
+                                    <span>Colombia (+57)</span>
+                                </div>
+                                <div class="select-option" data-country="CL" data-code="+56" data-format="# #### ####">
+                                    <span>🇨🇱</span>
+                                    <span>Chile (+56)</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="input-group">
+                        <label class="input-label">Teléfono</label>
+                        <div class="phone-input-wrapper">
+                            <div class="phone-code" id="phoneCode">+52</div>
+                            <div class="phone-input">
+                                <input type="tel" class="input-field" id="phone" placeholder="Número de teléfono">
+                                <i class="fas fa-check input-icon"></i>
+                            </div>
+                        </div>
+                        <div class="phone-format-hint" id="phoneFormatHint">Formato: (###) ###-####</div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="section">
+                <h2 class="section-title">Información de la Tarjeta</h2>
+
+                <div class="card-container">
+                    <div class="card-flip-container" id="cardFlip">
+                        <div class="card-face card-front" id="cardFront">
+                            <div class="card-visual">
+                                <div style="display: flex; justify-content: space-between; align-items: flex-start;">
+                                    <div class="card-chip"></div>
+                                    <div class="card-logo-container" id="cardBrandLogo">
+                                        <i class="fas fa-credit-card"></i>
+                                    </div>
+                                </div>
+                                <div class="card-number-display" id="cardNumberDisplay">#### #### #### ####</div>
+                                <div class="card-details-display">
+                                    <div>
+                                        <div class="card-detail-label">Titular</div>
+                                        <div class="card-detail-value" id="cardNameDisplay">NOMBRE APELLIDO</div>
+                                    </div>
+                                    <div>
+                                        <div class="card-detail-label">Vence</div>
+                                        <div class="card-detail-value" id="cardExpiryDisplay">MM/AA</div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="card-face card-back" id="cardBack">
+                            <div class="card-visual">
+                                <div class="card-magnetic-strip"></div>
+                                <div class="card-cvc-display">
+                                    <span class="card-cvc-label">CVV</span>
+                                    <span class="card-cvc-value" id="cardCvcDisplay">•••</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="card-input-grid">
+                    <div class="input-group">
+                        <label class="input-label">Número de Tarjeta</label>
+                        <input type="text" class="input-field" id="cardNumber" placeholder="1234 5678 9012 3456" maxlength="19">
+                        <div class="card-brand-icon" id="cardBrandIcon">
+                            <i class="fas fa-credit-card"></i>
+                        </div>
+                    </div>
+                    <div class="input-group">
+                        <label class="input-label">Nombre en la Tarjeta</label>
+                        <input type="text" class="input-field" id="cardName" placeholder="Como aparece en la tarjeta">
+                        <i class="fas fa-check input-icon"></i>
                     </div>
                     <div class="card-input-row">
-                        <div class="card-input-group">
-                            <label class="card-input-label">Fecha de expiración *</label>
-                            <div class="card-input-field" id="card-expiry-element"></div>
-                            <div class="card-error-message" id="cardExpiry-error"></div>
+                        <div class="input-group">
+                            <label class="input-label">Fecha de Vencimiento</label>
+                            <input type="text" class="input-field" id="cardExpiry" placeholder="MM/AA" maxlength="5">
+                            <i class="fas fa-check input-icon"></i>
                         </div>
-                        <div class="card-input-group">
-                            <label class="card-input-label">CVC *</label>
-                            <div class="card-input-field" id="card-cvc-element"></div>
-                            <div class="card-error-message" id="cardCvc-error"></div>
+                        <div class="input-group">
+                            <label class="input-label">CVV</label>
+                            <input type="text" class="input-field" id="cardCvc" placeholder="123" maxlength="4">
+                            <i class="fas fa-check input-icon"></i>
                         </div>
-                    </div>
-                    <div class="card-input-group">
-                        <label class="card-input-label">Código postal *</label>
-                        <input type="text" class="input-field" id="card-zip">
-                        <div class="card-error-message" id="cardZip-error"></div>
                     </div>
                 </div>
             </div>
         </div>
-        <div class="right-section">
-            <!-- ... resumen del pedido ... -->
-            <button class="pay-button" id="pay-button">
-                <span id="button-text">Pagar <?php echo htmlspecialchars($displayPrice); ?> <?php echo htmlspecialchars($displayCurrency); ?></span>
-            </button>
+
+        <div class="glass-card right-section">
+            <div class="summary-card">
+                <h2 class="summary-title">Resumen del Pedido</h2>
+                <div class="plan-badge">
+                    <div class="plan-name">Plan Premium</div>
+                    <div class="plan-price">$49.99</div>
+                    <div class="plan-period">por mes</div>
+                </div>
+                <div class="summary-item">
+                    <span>Subtotal</span>
+                    <span>$49.99</span>
+                </div>
+                <div class="summary-item">
+                    <span>IVA (16%)</span>
+                    <span>$8.00</span>
+                </div>
+                <div class="summary-item total">
+                    <span>Total</span>
+                    <span>$57.99</span>
+                </div>
+                <button class="pay-button" id="payButton">
+                    <i class="fas fa-lock"></i>
+                    <span>Pagar Ahora</span>
+                </button>
+            </div>
         </div>
     </div>
-    <!-- ... modales de éxito y error ... -->
-<script>
-document.addEventListener('DOMContentLoaded', function () {
-    const stripe = Stripe('<?php echo $stripeLivePublishableKey; ?>');
-    const elements = stripe.elements({ locale: 'es' });
-    const elementStyles = {
-        base: { color: '#202124', fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif', fontSize: '16px', '::placeholder': { color: '#aab7c4' } },
-        invalid: { color: '#ea4335', iconColor: '#ea4335' }
-    };
-    const cardNumber = elements.create('cardNumber', { style: elementStyles, showIcon: true, iconStyle: 'solid' });
-    cardNumber.mount('#card-number-element');
-    const cardExpiry = elements.create('cardExpiry', { style: elementStyles });
-    cardExpiry.mount('#card-expiry-element');
-    const cardCvc = elements.create('cardCvc', { style: elementStyles });
-    cardCvc.mount('#card-cvc-element');
 
-    const formElements = {
-        nombre: document.getElementById('nombre'), email: document.getElementById('email'), pais: document.getElementById('selected-country'),
-        telefono: document.getElementById('telefono'), compania: document.getElementById('compania'), direccion: document.getElementById('direccion'),
-        cardName: document.getElementById('card-name'), cardZip: document.getElementById('card-zip'), payButton: document.getElementById('pay-button')
-    };
+    <script>
+        // Datos de países con ladas y formatos
+        const countryData = {
+            'MX': { code: '+52', format: '(###) ###-####', placeholder: '(555) 123-4567' },
+            'US': { code: '+1', format: '(###) ###-####', placeholder: '(555) 123-4567' },
+            'ES': { code: '+34', format: '### ### ###', placeholder: '612 345 678' },
+            'AR': { code: '+54', format: '(###) ####-####', placeholder: '(11) 1234-5678' },
+            'CO': { code: '+57', format: '(###) ###-####', placeholder: '(300) 123-4567' },
+            'CL': { code: '+56', format: '# #### ####', placeholder: '9 1234 5678' }
+        };
 
-    const formState = {};
-    const fieldsToValidate = ['nombre', 'email', 'telefono', 'compania', 'direccion', 'card-name', 'card-zip'];
-    fieldsToValidate.forEach(id => formState[id] = false);
-    ['cardNumber', 'cardExpiry', 'cardCvc'].forEach(name => formState[name] = false);
+        let selectedCountry = null;
 
-    function setupStripeElementValidation(element, name) {
-        element.on('change', function(event) {
-            formState[name] = event.complete;
-            const errorElement = document.getElementById(name + '-error');
-            const fieldContainer = element._component.parentElement;
-            fieldContainer.classList.toggle('invalid', !!event.error);
-            if (errorElement) {
-                errorElement.textContent = event.error ? event.error.message : '';
-                errorElement.classList.toggle('show', !!event.error);
+        // Selector de país
+        const countryTrigger = document.getElementById('countryTrigger');
+        const countryOptions = document.getElementById('countryOptions');
+        const phoneCode = document.getElementById('phoneCode');
+        const phoneInput = document.getElementById('phone');
+        const phoneFormatHint = document.getElementById('phoneFormatHint');
+
+        countryTrigger.addEventListener('click', () => {
+            countryOptions.classList.toggle('active');
+            countryTrigger.classList.toggle('active');
+        });
+
+        document.querySelectorAll('.select-option').forEach(option => {
+            option.addEventListener('click', function() {
+                const country = this.dataset.country;
+                const code = this.dataset.code;
+                const flag = this.querySelector('span').textContent;
+                const name = this.textContent.trim();
+
+                selectedCountry = country;
+                const data = countryData[country];
+
+                // Actualizar selector
+                countryTrigger.querySelector('.selected-option').innerHTML = `
+                    <span>${flag}</span>
+                    <span>${name}</span>
+                `;
+                countryTrigger.classList.add('completed');
+
+                // Actualizar código de teléfono
+                phoneCode.textContent = data.code;
+
+                // Actualizar placeholder y formato
+                phoneInput.placeholder = data.placeholder;
+                phoneFormatHint.textContent = `Formato: ${data.format}`;
+
+                // Limpiar campo de teléfono
+                phoneInput.value = '';
+                phoneInput.classList.remove('completed', 'invalid');
+
+                countryOptions.classList.remove('active');
+                countryTrigger.classList.remove('active');
+            });
+        });
+
+        // Cerrar selector al hacer clic fuera
+        document.addEventListener('click', (e) => {
+            if (!countryTrigger.contains(e.target) && !countryOptions.contains(e.target)) {
+                countryOptions.classList.remove('active');
+                countryTrigger.classList.remove('active');
             }
         });
-    }
-    setupStripeElementValidation(cardNumber, 'cardNumber');
-    setupStripeElementValidation(cardExpiry, 'cardExpiry');
-    setupStripeElementValidation(cardCvc, 'cardCvc');
 
-    formElements.payButton.addEventListener('click', async () => {
-        setLoading(true);
-        try {
-            const response = await fetch('pago.php', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    nombre: formElements.nombre.value, email: formElements.email.value, telefono: formElements.telefono.value,
-                    direccion: formElements.direccion.value, compania: formElements.compania.value, pais: formElements.pais.textContent.trim()
-                })
-            });
-            const data = await response.json();
-            if (!data.success) throw new Error(data.error);
+        // Formatear teléfono según el país
+        phoneInput.addEventListener('input', function(e) {
+            if (!selectedCountry) return;
 
-            const { paymentIntent, error } = await stripe.confirmCardPayment(data.clientSecret, {
-                payment_method: {
-                    card: cardNumber,
-                    billing_details: { name: formElements.cardName.value, email: formElements.email.value, phone: formElements.telefono.value, address: { line1: formElements.direccion.value, postal_code: formElements.cardZip.value } }
+            let value = e.target.value.replace(/\D/g, '');
+            const format = countryData[selectedCountry].format;
+            let formatted = '';
+            let valueIndex = 0;
+
+            for (let i = 0; i < format.length && valueIndex < value.length; i++) {
+                if (format[i] === '#') {
+                    formatted += value[valueIndex];
+                    valueIndex++;
+                } else {
+                    formatted += format[i];
                 }
-            });
+            }
 
-            if (error) throw error;
-            if (paymentIntent && paymentIntent.status === 'succeeded') showSuccess();
-            else throw new Error('El pago no fue exitoso.');
+            e.target.value = formatted;
 
-        } catch (error) {
-            showError('Error en el Pago', error.message || 'Ocurrió un error inesperado.');
-        } finally {
-            setLoading(false);
+            // Validar longitud
+            const expectedLength = format.replace(/[^#]/g, '').length;
+            if (value.length === expectedLength) {
+                e.target.classList.add('completed');
+                e.target.classList.remove('invalid');
+            } else {
+                e.target.classList.remove('completed');
+            }
+        });
+
+        // Validación de campos básicos
+        const fullName = document.getElementById('fullName');
+        const email = document.getElementById('email');
+
+        fullName.addEventListener('input', function() {
+            if (this.value.trim().length >= 3) {
+                this.classList.add('completed');
+                this.classList.remove('invalid');
+            } else {
+                this.classList.remove('completed');
+            }
+        });
+
+        email.addEventListener('input', function() {
+            const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+            if (emailRegex.test(this.value)) {
+                this.classList.add('completed');
+                this.classList.remove('invalid');
+            } else {
+                this.classList.remove('completed');
+            }
+        });
+
+        // Tarjeta de crédito
+        const cardFlip = document.getElementById('cardFlip');
+        const cardFront = document.getElementById('cardFront');
+        const cardBack = document.getElementById('cardBack');
+        const cardNumber = document.getElementById('cardNumber');
+        const cardName = document.getElementById('cardName');
+        const cardExpiry = document.getElementById('cardExpiry');
+        const cardCvc = document.getElementById('cardCvc');
+        const cardNumberDisplay = document.getElementById('cardNumberDisplay');
+        const cardNameDisplay = document.getElementById('cardNameDisplay');
+        const cardExpiryDisplay = document.getElementById('cardExpiryDisplay');
+        const cardCvcDisplay = document.getElementById('cardCvcDisplay');
+        const cardBrandIcon = document.getElementById('cardBrandIcon');
+        const cardBrandLogo = document.getElementById('cardBrandLogo');
+
+        // Detectar tipo de tarjeta
+        function detectCardBrand(number) {
+            const patterns = {
+                visa: /^4/,
+                mastercard: /^5[1-5]/,
+                amex: /^3[47]/,
+                discover: /^6(?:011|5)/
+            };
+
+            for (let brand in patterns) {
+                if (patterns[brand].test(number)) {
+                    return brand;
+                }
+            }
+            return null;
         }
-    });
 
-    function setLoading(isLoading) {
-        formElements.payButton.disabled = isLoading;
-        formElements.payButton.querySelector('#button-text').textContent = isLoading ? 'Procesando...' : 'Pagar';
-    }
-    function showSuccess() { document.getElementById('success-overlay').classList.add('active'); }
-    function showError(title, message) {
-        document.getElementById('error-title').textContent = title;
-        document.getElementById('error-text').textContent = message;
-        document.getElementById('error-overlay').classList.add('active');
-        document.getElementById('error-modal').classList.add('active');
-    }
-});
-</script>
+        // Algoritmo de Luhn
+        function luhnCheck(cardNumber) {
+            let sum = 0;
+            let isEven = false;
+
+            for (let i = cardNumber.length - 1; i >= 0; i--) {
+                let digit = parseInt(cardNumber[i]);
+
+                if (isEven) {
+                    digit *= 2;
+                    if (digit > 9) {
+                        digit -= 9;
+                    }
+                }
+
+                sum += digit;
+                isEven = !isEven;
+            }
+
+            return sum % 10 === 0;
+        }
+
+        // Formatear número de tarjeta
+        cardNumber.addEventListener('input', function(e) {
+            let value = e.target.value.replace(/\s/g, '');
+            let formatted = value.match(/.{1,4}/g)?.join(' ') || value;
+            e.target.value = formatted;
+
+            cardNumberDisplay.textContent = formatted.padEnd(19, '#').replace(/\s/g, ' ');
+
+            const brand = detectCardBrand(value);
+            if (brand) {
+                updateCardBrand(brand);
+            }
+
+            if (value.length >= 13) {
+                if (luhnCheck(value)) {
+                    e.target.classList.add('completed');
+                    e.target.classList.remove('invalid');
+                    cardFront.classList.remove('card-invalid');
+                } else {
+                    e.target.classList.add('invalid');
+                    e.target.classList.remove('completed');
+                    cardFront.classList.add('card-invalid');
+                }
+            }
+        });
+
+        function updateCardBrand(brand) {
+            const icons = {
+                visa: '<i class="fab fa-cc-visa"></i>',
+                mastercard: '<i class="fab fa-cc-mastercard"></i>',
+                amex: '<i class="fab fa-cc-amex"></i>',
+                discover: '<i class="fab fa-cc-discover"></i>'
+            };
+
+            cardBrandIcon.innerHTML = icons[brand] || '<i class="fas fa-credit-card"></i>';
+            cardBrandLogo.innerHTML = icons[brand] || '<i class="fas fa-credit-card"></i>';
+            cardBrandIcon.classList.add('active');
+
+            cardFront.className = 'card-face card-front ' + brand;
+            cardBack.className = 'card-face card-back ' + brand;
+        }
+
+        cardName.addEventListener('input', function() {
+            cardNameDisplay.textContent = this.value.toUpperCase() || 'NOMBRE APELLIDO';
+            if (this.value.trim().length >= 3) {
+                this.classList.add('completed');
+            } else {
+                this.classList.remove('completed');
+            }
+        });
+
+        cardExpiry.addEventListener('input', function(e) {
+            let value = e.target.value.replace(/\D/g, '');
+            if (value.length >= 2) {
+                value = value.slice(0, 2) + '/' + value.slice(2, 4);
+            }
+            e.target.value = value;
+            cardExpiryDisplay.textContent = value || 'MM/AA';
+
+            if (value.length === 5) {
+                const [month, year] = value.split('/');
+                if (parseInt(month) >= 1 && parseInt(month) <= 12) {
+                    this.classList.add('completed');
+                    this.classList.remove('invalid');
+                } else {
+                    this.classList.add('invalid');
+                    this.classList.remove('completed');
+                }
+            }
+        });
+
+        cardCvc.addEventListener('focus', function() {
+            cardFlip.classList.add('flipped');
+        });
+
+        cardCvc.addEventListener('blur', function() {
+            cardFlip.classList.remove('flipped');
+        });
+
+        cardCvc.addEventListener('input', function() {
+            cardCvcDisplay.textContent = this.value || '•••';
+            if (this.value.length >= 3) {
+                this.classList.add('completed');
+            } else {
+                this.classList.remove('completed');
+            }
+        });
+
+        // Botón de pago
+        const payButton = document.getElementById('payButton');
+        payButton.addEventListener('click', function() {
+            alert('¡Formulario de demostración! Todas las validaciones funcionan correctamente.');
+        });
+    </script>
 </body>
 </html>
