@@ -1,94 +1,11 @@
-<?php
-session_start();
-
-// Habilitar errores para depuración (eliminar en producción)
-ini_set('display_errors', 1);
-ini_set('display_startup_errors', 1);
-error_reporting(E_ALL);
-
-// Requerir la librería de Stripe y funciones
-// Asegúrate de que las rutas a estos archivos sean correctas
-require 'vendor/autoload.php';
-use Stripe\Stripe;
-
-// Configuración de claves de Stripe
-$stripeLiveSecretKey = getenv('STRIPE_LIVE_SECRET_KEY') ?: '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';
-$stripeLivePublishableKey = getenv('STRIPE_LIVE_PUBLISHABLE_KEY') ?: 'pk_live_51R76cwH0kpgdEo6UfUYi7RSqtUEdXjmQENykmNIVb9M5wdDpNQQWYoOgnqZKSqb2YbSTLbqKZ0ooy6A2RxVrKMHP00aXXfV7EG';
-
-Stripe::setApiKey($stripeLiveSecretKey);
-
-// Definición de los IDs de precios de Stripe
-$priceIds = [
-    'basico' => ['mensual' => 'price_1S6GZtH0kpgdEo6U0tTbmK07', 'anual' => 'price_1RGekOH0kpgdEo6UTK8saFZ2'],
-    'profesional' => ['mensual' => 'price_1S6GaKH0kpgdEo6UGdIKRfQc', 'anual' => 'price_1S6GfpH0kpgdEo6U3WQkT6mS'],
-    'empresarial' => ['mensual' => 'price_1S6GalH0kpgdEo6UVlBbV3ka', 'anual' => 'price_1S6GgmH0kpgdEo6U0oz70klC']
-];
-
-// Obtener y normalizar los parámetros de la URL
-$plan = strtolower($_GET['plan'] ?? 'empresarial'); // Default a empresarial si no se especifica
-$period = strtolower($_GET['period'] ?? 'mensual');
-$currency = strtolower($_GET['currency'] ?? 'mxn');
-
-if ($period === 'monthly') $period = 'mensual';
-if ($period === 'annual') $period = 'anual';
-
-// Redirigir si el plan es básico (gratuito)
-if ($plan === 'basico') {
-    $userId = $_SESSION['usuario_id'] ?? 'user123';
-    $userEmail = $_SESSION['usuario_email'] ?? '';
-    header("Location: https://yopracticando.com/activate_free_plan.php?plan=$plan&period=$period&user_id=" . urlencode($userId) . "&email=" . urlencode($userEmail));
-    exit();
-}
-
-// Validar que los parámetros sean correctos
-if (!array_key_exists($plan, $priceIds) || !in_array($period, ['mensual', 'anual']) || $currency !== 'mxn') {
-    header("Location: https://yopracticando.com/planes.php?error=invalid_plan");
-    exit();
-}
-
-// Obtener el precio desde Stripe para mostrarlo
-try {
-    $priceId = $priceIds[$plan][$period];
-    $price = \Stripe\Price::retrieve($priceId);
-    $displayPrice = '$' . number_format($price->unit_amount / 100, 2);
-    $priceAmount = $price->unit_amount;
-    $displayCurrency = strtoupper($currency);
-} catch (\Stripe\Exception\ApiErrorException $e) {
-    // Manejar error si el Price ID no existe en Stripe
-    error_log("Stripe API error: " . $e->getMessage());
-    header("Location: https://yopracticando.com/planes.php?error=price_not_found");
-    exit();
-}
-
-$periodText = ($period === 'anual') ? 'Anual' : 'Mensual';
-$planName = ucfirst($plan);
-
-// Pre-llenar datos del usuario desde la sesión
-$_SESSION['usuario_nombre'] = $_SESSION['usuario_nombre'] ?? '';
-$_SESSION['usuario_email'] = $_SESSION['usuario_email'] ?? '';
-$_SESSION['usuario_telefono'] = $_SESSION['usuario_telefono'] ?? '';
-$_SESSION['usuario_compania'] = $_SESSION['usuario_compania'] ?? '';
-$_SESSION['usuario_direccion'] = $_SESSION['usuario_direccion'] ?? '';
-$_SESSION['usuario_pais'] = $_SESSION['usuario_pais'] ?? '🇲🇽 México'; // Default a México
-
-// Guardar detalles del plan en sesión para el backend
-$_SESSION['plan'] = $plan;
-$_SESSION['period'] = $period;
-$_SESSION['price_id'] = $priceId;
-$_SESSION['amount'] = $priceAmount;
-$_SESSION['currency'] = $currency;
-
-?>
 <!DOCTYPE html>
 <html lang="es">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Completa tu suscripción - YoPracticando</title>
-    <!-- Stripe.js -->
-    <script src="https://js.stripe.com/v3/"></script>
-    <!-- Font Awesome for icons -->
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+    <title>Completa tu suscripción</title>
+    <!-- Font Awesome for icons, as referenced in the provided JavaScript -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.4/js/all.min.js"></script>
     <style>
         :root {
             --primary-blue: #4285f4;
@@ -98,7 +15,13 @@ $_SESSION['currency'] = $currency;
             --error-red: #ea4335;
             --warning-yellow: #fbbc05;
         }
-        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
         body {
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
             background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
@@ -107,237 +30,2444 @@ $_SESSION['currency'] = $currency;
             position: relative;
             overflow-x: hidden;
         }
-        .container { max-width: 1200px; margin: 0 auto; display: grid; grid-template-columns: 1fr 420px; gap: 32px; position: relative; z-index: 1; }
+
+        body::before {
+            content: '';
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background:
+                radial-gradient(circle at 20% 30%, rgba(102, 126, 234, 0.4) 0%, transparent 50%),
+                radial-gradient(circle at 80% 70%, rgba(118, 75, 162, 0.4) 0%, transparent 50%);
+            animation: bgPulse 15s ease-in-out infinite;
+            pointer-events: none;
+            z-index: 0;
+        }
+
+        @keyframes bgPulse {
+            0%, 100% { opacity: 0.5; }
+            50% { opacity: 0.8; }
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            display: grid;
+            grid-template-columns: 1fr 420px;
+            gap: 32px;
+            position: relative;
+            z-index: 1;
+        }
+
         .glass-card {
             background: rgba(255, 255, 255, 0.95);
             backdrop-filter: blur(40px) saturate(180%);
             border-radius: 28px;
             border: 1px solid rgba(255, 255, 255, 0.8);
-            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.15), 0 8px 16px rgba(0, 0, 0, 0.1), inset 0 1px 0 rgba(255, 255, 255, 1);
+            box-shadow:
+                0 20px 60px rgba(0, 0, 0, 0.15),
+                0 8px 16px rgba(0, 0, 0, 0.1),
+                inset 0 1px 0 rgba(255, 255, 255, 1);
             animation: slideUp 0.8s cubic-bezier(0.16, 1, 0.3, 1);
             transition: transform 0.3s ease, box-shadow 0.3s ease;
         }
-        @keyframes slideUp { from { opacity: 0; transform: translateY(60px); } to { opacity: 1; transform: translateY(0); } }
-        .left-section { padding: 56px; }
-        .main-title { font-size: 36px; font-weight: 800; margin-bottom: 16px; color: var(--dark-text); letter-spacing: -1px; }
-        .subtitle { font-size: 17px; color: #5f6368; margin-bottom: 48px; line-height: 1.6; }
-        .progress-container { margin-bottom: 48px; padding: 32px; background: linear-gradient(135deg, rgba(66, 133, 244, 0.05) 0%, rgba(52, 168, 83, 0.05) 100%); border-radius: 20px; border: 1px solid rgba(66, 133, 244, 0.1); }
-        .steps { display: flex; justify-content: space-between; }
-        .step { display: flex; flex-direction: column; align-items: center; gap: 12px; flex: 1; }
-        .step-icon { width: 56px; height: 56px; border-radius: 50%; background: white; display: flex; align-items: center; justify-content: center; color: #9aa0a6; font-size: 22px; border: 3px solid var(--light-gray); transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1); }
-        .step.completed .step-icon { background: var(--primary-green); border-color: var(--primary-green); color: white; }
-        .step.active .step-icon { background: linear-gradient(135deg, var(--primary-blue) 0%, var(--primary-green) 100%); border-color: var(--primary-blue); color: white; transform: scale(1.1); }
-        .step-label { font-size: 14px; font-weight: 600; color: #5f6368; }
-        .step.active .step-label { color: var(--dark-text); font-weight: 700; }
-        .step-connector { height: 6px; background: rgba(224, 224, 224, 0.5); border-radius: 3px; position: relative; margin: -42px auto 24px; max-width: calc(100% - 180px); }
-        .step-connector-fill { height: 100%; background: linear-gradient(90deg, var(--primary-blue) 0%, var(--primary-green) 100%); border-radius: 3px; width: 0%; transition: width 0.6s cubic-bezier(0.4, 0, 0.2, 1); }
-        .section { background: white; border-radius: 24px; padding: 40px; margin-bottom: 28px; }
-        .section-header { display: flex; align-items: center; gap: 16px; margin-bottom: 32px; }
-        .section-icon { width: 48px; height: 48px; border-radius: 14px; background: linear-gradient(135deg, #f1f3f4 0%, #e8eaed 100%); display: flex; align-items: center; justify-content: center; color: #5f6368; font-size: 20px; }
-        .section-header.completed .section-icon { background: linear-gradient(135deg, #e6f4ea 0%, #d4ede0 100%); color: var(--primary-green); }
-        .section-title { font-size: 22px; font-weight: 700; color: var(--dark-text); flex-grow: 1; }
-        .section-complete-badge { background: linear-gradient(135deg, #e6f4ea 0%, #d4ede0 100%); color: var(--primary-green); padding: 8px 16px; border-radius: 24px; font-size: 14px; font-weight: 600; display: flex; align-items: center; gap: 8px; opacity: 0; transform: scale(0.8); transition: all 0.3s ease; }
-        .section-header.completed .section-complete-badge { opacity: 1; transform: scale(1); }
-        .form-row { display: flex; gap: 24px; margin-bottom: 24px; }
-        .input-group { flex: 1; position: relative; }
-        .input-label { font-size: 14px; font-weight: 600; color: #5f6368; margin-bottom: 10px; display: block; }
-        .input-field, .card-input-field { width: 100%; height: 56px; border: 2px solid #dadce0; border-radius: 14px; padding: 0 18px; font-size: 16px; color: var(--dark-text); transition: all 0.3s ease; background: white; font-weight: 500; }
-        .card-input-field { display: flex; align-items: center; padding-right: 48px; }
-        .input-field:focus, .card-input-field:focus-within { outline: none; border-color: var(--primary-blue); box-shadow: 0 0 0 4px rgba(66, 133, 244, 0.15); transform: translateY(-2px); }
-        .input-field.invalid, .card-input-field.invalid { border-color: var(--error-red) !important; }
-        .card-container { margin-bottom: 40px; perspective: 1500px; }
-        .card-flip-container { position: relative; width: 100%; max-width: 460px; height: 290px; margin: 0 auto 40px; transition: transform 0.7s cubic-bezier(0.4, 0, 0.2, 1); transform-style: preserve-3d; }
-        .card-flip-container.flipped { transform: rotateY(180deg); }
-        .card-face { position: absolute; width: 100%; height: 100%; backface-visibility: hidden; border-radius: 24px; padding: 32px; box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3); overflow: hidden; }
-        .card-front { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); }
-        .card-front.visa { background: linear-gradient(135deg, #1A1F71 0%, #0D47A1 100%); }
-        .card-front.mastercard { background: linear-gradient(135deg, #EB001B 0%, #F79E1B 50%, #FF5F00 100%); }
-        .card-front.amex { background: linear-gradient(135deg, #006FCF 0%, #0077CC 50%, #00A4E0 100%); }
-        .card-back { background: linear-gradient(135deg, #434343 0%, #000000 100%); transform: rotateY(180deg); }
-        .card-visual { height: 100%; display: flex; flex-direction: column; justify-content: space-between; position: relative; z-index: 1; }
-        .card-logo-container { display: flex; justify-content: flex-end; font-size: 36px; color: white; }
-        .card-chip { width: 54px; height: 44px; background: linear-gradient(135deg, #FFD700 0%, #FFA500 50%, #B8860B 100%); border-radius: 10px; }
-        .card-number-display { font-size: 26px; letter-spacing: 4px; font-weight: 600; color: white; margin: 24px 0; font-family: 'Courier New', monospace; }
-        .card-details-display { display: flex; justify-content: space-between; }
-        .card-detail-label { font-size: 10px; text-transform: uppercase; color: white; }
-        .card-detail-value { font-size: 17px; font-weight: 700; color: white; margin-top: 6px; text-transform: uppercase; }
-        .card-magnetic-strip { width: 100%; height: 56px; background: #000; margin: 24px 0; }
-        .card-cvc-display { display: flex; justify-content: flex-end; align-items: center; gap: 14px; background: white; padding: 12px 24px; border-radius: 10px; margin-top: 36px; }
-        .card-input-grid { display: grid; gap: 24px; }
-        .card-input-group { position: relative; }
-        .card-input-label { font-size: 14px; font-weight: 600; color: #5f6368; margin-bottom: 10px; display: block; }
-        .card-input-row { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; }
-        .card-brand-icon { position: absolute; right: 18px; top: 12px; font-size: 28px; opacity: 0; transition: all 0.3s ease; }
-        .card-brand-icon.active { opacity: 1; }
-        .card-error-message { color: var(--error-red); font-size: 13px; font-weight: 600; margin-top: 8px; display: none; min-height: 1em; }
-        .card-error-message.show { display: block; }
-        .right-section { position: sticky; top: 40px; height: fit-content; }
-        .summary-card { padding: 40px; }
-        .summary-title { font-size: 22px; font-weight: 700; color: var(--dark-text); margin-bottom: 28px; }
-        .plan-badge { background: linear-gradient(135deg, var(--primary-blue) 0%, var(--primary-green) 100%); border-radius: 20px; padding: 28px; color: white; margin-bottom: 28px; }
-        .plan-name { font-size: 16px; margin-bottom: 12px; font-weight: 600; }
-        .plan-price { font-size: 42px; font-weight: 800; margin-bottom: 6px; }
-        .summary-item { display: flex; justify-content: space-between; margin-bottom: 18px; font-size: 15px; }
-        .summary-item.total { font-size: 22px; font-weight: 700; color: var(--dark-text); padding-top: 20px; border-top: 2px solid rgba(0, 0, 0, 0.1); margin-top: 12px; }
-        .pay-button { width: 100%; height: 60px; background: linear-gradient(135deg, var(--primary-blue) 0%, var(--primary-green) 100%); border: none; border-radius: 14px; color: white; font-size: 17px; font-weight: 700; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 14px; transition: all 0.3s ease; }
-        .pay-button:disabled { opacity: 0.7; cursor: not-allowed; }
-        .spinner { width: 22px; height: 22px; border: 3px solid rgba(255, 255, 255, 0.3); border-top-color: white; border-radius: 50%; animation: spin 0.8s linear infinite; }
-        @keyframes spin { to { transform: rotate(360deg); } }
-        .success-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(255, 255, 255, 0.98); backdrop-filter: blur(20px); display: none; align-items: center; justify-content: center; z-index: 2000; }
-        .success-overlay.active { display: flex; }
-        .success-message { text-align: center; }
-        .success-icon { width: 100px; height: 100px; background: linear-gradient(135deg, var(--primary-green) 0%, #2d8e44 100%); border-radius: 50%; display: flex; align-items: center; justify-content: center; color: white; font-size: 50px; margin: 0 auto 28px; }
-        .success-title { font-size: 32px; font-weight: 800; color: var(--dark-text); margin-bottom: 16px; }
-        .error-modal { background: white; border-radius: 24px; padding: 48px; max-width: 440px; text-align: center; box-shadow: 0 24px 72px rgba(0, 0, 0, 0.3); opacity: 0; transform: scale(0.85); transition: all 0.3s ease; }
-        #error-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); display: none; align-items: center; justify-content: center; z-index: 2000; }
-        #error-overlay.active { display: flex; }
-        #error-modal.active { opacity: 1; transform: scale(1); }
-        .error-icon { width: 100px; height: 100px; background: linear-gradient(135deg, #fef7f6 0%, #fce8e6 100%); border-radius: 50%; display: flex; align-items: center; justify-content: center; color: var(--error-red); font-size: 50px; margin: 0 auto 24px; }
-        .error-title { font-size: 26px; font-weight: 700; color: var(--dark-text); margin-bottom: 16px; }
-        .error-text { font-size: 16px; color: #5f6368; margin-bottom: 28px; line-height: 1.6; }
-        .error-button { background: linear-gradient(135deg, var(--primary-blue) 0%, #3367d6 100%); border: none; border-radius: 12px; padding: 16px 40px; font-size: 16px; font-weight: 700; color: white; cursor: pointer; }
-        .validation-alert { position: fixed; bottom: 40px; left: 50%; transform: translateX(-50%) translateY(120px); background: var(--dark-text); color: white; padding: 18px 28px; border-radius: 14px; display: flex; align-items: center; gap: 14px; box-shadow: 0 12px 32px rgba(0, 0, 0, 0.4); z-index: 1500; opacity: 0; transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1); }
-        .validation-alert.show { transform: translateX(-50%) translateY(0); opacity: 1; }
+
+        .glass-card:hover {
+            transform: translateY(-4px);
+            box-shadow:
+                0 24px 70px rgba(0, 0, 0, 0.2),
+                0 12px 24px rgba(0, 0, 0, 0.15),
+                inset 0 1px 0 rgba(255, 255, 255, 1);
+        }
+
+        @keyframes slideUp {
+            from {
+                opacity: 0;
+                transform: translateY(60px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        .left-section {
+            padding: 56px;
+        }
+
+        .logo {
+            display: flex;
+            align-items: center;
+            gap: 16px;
+            margin-bottom: 48px;
+        }
+
+        .logo-icon {
+            width: 60px;
+            height: 60px;
+            background: linear-gradient(135deg, var(--primary-blue) 0%, var(--primary-green) 100%);
+            border-radius: 18px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            font-size: 30px;
+            font-weight: bold;
+            box-shadow:
+                0 12px 24px rgba(66, 133, 244, 0.3),
+                0 6px 12px rgba(52, 168, 83, 0.2);
+            animation: logoFloat 3s ease-in-out infinite;
+        }
+
+        @keyframes logoFloat {
+            0%, 100% { transform: translateY(0px); }
+            50% { transform: translateY(-8px); }
+        }
+
+        .logo-text {
+            font-size: 28px;
+            font-weight: 800;
+            background: linear-gradient(135deg, var(--primary-blue) 0%, var(--primary-green) 100%);
+            -webkit-background-clip: text;
+            background-clip: text;
+            -webkit-text-fill-color: transparent;
+            letter-spacing: -0.5px;
+        }
+
+        .main-title {
+            font-size: 36px;
+            font-weight: 800;
+            margin-bottom: 16px;
+            color: var(--dark-text);
+            letter-spacing: -1px;
+        }
+
+        .subtitle {
+            font-size: 17px;
+            color: #5f6368;
+            margin-bottom: 48px;
+            line-height: 1.6;
+        }
+
+        .progress-container {
+            margin-bottom: 48px;
+            padding: 32px;
+            background: linear-gradient(135deg, rgba(66, 133, 244, 0.05) 0%, rgba(52, 168, 83, 0.05) 100%);
+            border-radius: 20px;
+            border: 1px solid rgba(66, 133, 244, 0.1);
+        }
+
+        .progress-title {
+            font-size: 18px;
+            font-weight: 700;
+            color: var(--dark-text);
+            margin-bottom: 24px;
+        }
+
+        .step-connector {
+            height: 6px;
+            background: rgba(224, 224, 224, 0.5);
+            border-radius: 3px;
+            position: relative;
+            margin-bottom: 24px;
+            overflow: hidden;
+        }
+
+        .step-connector-fill {
+            height: 100%;
+            background: linear-gradient(90deg, var(--primary-blue) 0%, var(--primary-green) 100%);
+            border-radius: 3px;
+            width: 25%;
+            transition: width 0.6s cubic-bezier(0.4, 0, 0.2, 1);
+            box-shadow: 0 0 12px rgba(66, 133, 244, 0.5);
+        }
+
+        .steps {
+            display: flex;
+            justify-content: space-between;
+        }
+
+        .step {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 12px;
+            flex: 1;
+        }
+
+        .step-icon {
+            width: 56px;
+            height: 56px;
+            border-radius: 50%;
+            background: white;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: #9aa0a6;
+            font-size: 22px;
+            border: 3px solid var(--light-gray);
+            transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+            position: relative;
+        }
+
+        .step-icon::after {
+            content: '';
+            position: absolute;
+            width: 100%;
+            height: 100%;
+            border-radius: 50%;
+            background: inherit;
+            opacity: 0;
+            transition: opacity 0.3s ease;
+        }
+
+        .step.completed .step-icon {
+            background: var(--primary-green);
+            border-color: var(--primary-green);
+            color: white;
+            transform: scale(1.05);
+            box-shadow: 0 4px 16px rgba(52, 168, 83, 0.4);
+        }
+
+        .step.active .step-icon {
+            background: linear-gradient(135deg, var(--primary-blue) 0%, var(--primary-green) 100%);
+            border-color: var(--primary-blue);
+            color: white;
+            transform: scale(1.1);
+            box-shadow: 0 6px 20px rgba(66, 133, 244, 0.5);
+            animation: pulse 2s ease-in-out infinite;
+        }
+
+        @keyframes pulse {
+            0%, 100% { box-shadow: 0 6px 20px rgba(66, 133, 244, 0.5); }
+            50% { box-shadow: 0 6px 30px rgba(66, 133, 244, 0.7); }
+        }
+
+        .step-label {
+            font-size: 14px;
+            font-weight: 600;
+            color: #5f6368;
+            transition: all 0.3s ease;
+        }
+
+        .step.active .step-label {
+            color: var(--dark-text);
+            font-weight: 700;
+        }
+
+        .section {
+            background: white;
+            border-radius: 24px;
+            padding: 40px;
+            margin-bottom: 28px;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08);
+            border: 1px solid rgba(0, 0, 0, 0.05);
+            transition: all 0.3s ease;
+        }
+
+        .section:hover {
+            box-shadow: 0 8px 30px rgba(0, 0, 0, 0.12);
+            transform: translateY(-2px);
+        }
+
+        .section-header {
+            display: flex;
+            align-items: center;
+            gap: 16px;
+            margin-bottom: 32px;
+        }
+
+        .section-icon {
+            width: 48px;
+            height: 48px;
+            border-radius: 14px;
+            background: linear-gradient(135deg, #f1f3f4 0%, #e8eaed 100%);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: #5f6368;
+            font-size: 20px;
+            transition: all 0.3s ease;
+        }
+
+        .section-header.completed .section-icon {
+            background: linear-gradient(135deg, #e6f4ea 0%, #d4ede0 100%);
+            color: var(--primary-green);
+            transform: rotate(360deg);
+        }
+
+        .section-title {
+            font-size: 22px;
+            font-weight: 700;
+            color: var(--dark-text);
+            flex-grow: 1;
+        }
+
+        .section-complete-badge {
+            background: linear-gradient(135deg, #e6f4ea 0%, #d4ede0 100%);
+            color: var(--primary-green);
+            padding: 8px 16px;
+            border-radius: 24px;
+            font-size: 14px;
+            font-weight: 600;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            opacity: 0;
+            transform: scale(0.8);
+            transition: all 0.3s ease;
+        }
+
+        .section-header.completed .section-complete-badge {
+            opacity: 1;
+            transform: scale(1);
+        }
+
+        .form-row {
+            display: flex;
+            gap: 24px;
+            margin-bottom: 24px;
+        }
+
+        .input-group {
+            flex: 1;
+            position: relative;
+        }
+
+        .input-label {
+            font-size: 14px;
+            font-weight: 600;
+            color: #5f6368;
+            margin-bottom: 10px;
+            display: block;
+        }
+
+        .input-field {
+            width: 100%;
+            height: 56px;
+            border: 2px solid #dadce0;
+            border-radius: 14px;
+            padding: 0 48px 0 18px;
+            font-size: 16px;
+            color: var(--dark-text);
+            transition: all 0.3s ease;
+            background: white;
+            font-weight: 500;
+        }
+
+        textarea.input-field {
+            height: 120px;
+            padding: 18px 48px 18px 18px;
+            resize: none;
+            font-family: inherit;
+        }
+
+        .input-field:focus {
+            outline: none;
+            border-color: var(--primary-blue);
+            box-shadow: 0 0 0 4px rgba(66, 133, 244, 0.15);
+            transform: translateY(-2px);
+        }
+
+        .input-field.completed {
+            border-color: var(--primary-green);
+            background: linear-gradient(135deg, #f8fbf8 0%, #f0f8f2 100%);
+        }
+
+        .input-field.invalid {
+            border-color: var(--error-red);
+            background: #fef7f6;
+            animation: shake 0.4s cubic-bezier(.36, .07, .19, .97);
+        }
+
+        @keyframes shake {
+            10%, 90% { transform: translate3d(-1px, 0, 0); }
+            20%, 80% { transform: translate3d(2px, 0, 0); }
+            30%, 50%, 70% { transform: translate3d(-3px, 0, 0); }
+            40%, 60% { transform: translate3d(3px, 0, 0); }
+        }
+
+        .input-icon {
+            position: absolute;
+            right: 18px;
+            top: 48px;
+            color: var(--primary-green);
+            opacity: 0;
+            transform: scale(0.5) rotate(-180deg);
+            transition: all 0.4s cubic-bezier(0.68, -0.55, 0.265, 1.55);
+            font-size: 18px;
+        }
+
+        .input-field.completed + .input-icon {
+            opacity: 1;
+            transform: scale(1) rotate(0deg);
+        }
+
+        .custom-select {
+            position: relative;
+        }
+
+        .select-trigger {
+            width: 100%;
+            height: 56px;
+            border: 2px solid #dadce0;
+            border-radius: 14px;
+            padding: 0 18px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            cursor: pointer;
+            background: white;
+            transition: all 0.3s ease;
+            font-weight: 500;
+        }
+
+        .select-trigger:hover {
+            border-color: var(--primary-blue);
+            box-shadow: 0 4px 12px rgba(66, 133, 244, 0.1);
+        }
+
+        .select-trigger.active {
+            border-color: var(--primary-blue);
+            box-shadow: 0 0 0 4px rgba(66, 133, 244, 0.15);
+        }
+
+        .select-trigger.completed {
+            border-color: var(--primary-green);
+            background: linear-gradient(135deg, #f8fbf8 0%, #f0f8f2 100%);
+        }
+
+        .selected-option {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            font-size: 16px;
+            color: #5f6368;
+        }
+
+        .select-trigger.completed .selected-option {
+            color: var(--dark-text);
+            font-weight: 600;
+        }
+
+        .select-options {
+            position: absolute;
+            top: calc(100% + 8px);
+            left: 0;
+            width: 100%;
+            background: white;
+            border-radius: 14px;
+            box-shadow: 0 12px 40px rgba(0, 0, 0, 0.2);
+            z-index: 999; /* Aumenta el z-index */
+            max-height: 0;
+            overflow: hidden;
+            opacity: 0;
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            border: 2px solid var(--primary-blue);
+        }
+
+        .select-options.active {
+            max-height: 320px;
+            opacity: 1;
+            padding: 8px;
+            overflow-y: auto;
+        }
+
+        .select-option {
+            padding: 14px 16px;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            border-radius: 10px;
+            font-weight: 500;
+        }
+
+        .select-option:hover {
+            background: linear-gradient(135deg, rgba(66, 133, 244, 0.1) 0%, rgba(52, 168, 83, 0.1) 100%);
+            transform: translateX(4px);
+        }
+
+        .card-container {
+            margin-bottom: 40px;
+            perspective: 1500px;
+        }
+
+        .card-flip-container {
+            position: relative;
+            width: 100%;
+            max-width: 460px;
+            height: 290px;
+            margin: 0 auto 40px;
+            transition: transform 0.7s cubic-bezier(0.4, 0, 0.2, 1);
+            transform-style: preserve-3d;
+        }
+
+        .card-flip-container.flipped {
+            transform: rotateY(180deg);
+        }
+
+        .card-face {
+            position: absolute;
+            width: 100%;
+            height: 100%;
+            backface-visibility: hidden;
+            border-radius: 24px;
+            padding: 32px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+            overflow: hidden;
+        }
+
+        .card-front {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            position: relative;
+        }
+
+        .card-front::before {
+            content: '';
+            position: absolute;
+            top: -50%;
+            left: -50%;
+            width: 200%;
+            height: 200%;
+            background: radial-gradient(circle at center, rgba(255, 255, 255, 0.15) 0%, transparent 50%);
+            opacity: 0;
+            transition: opacity 0.3s ease;
+        }
+
+        .card-front:hover::before {
+            opacity: 1;
+            animation: cardShine 3s ease-in-out infinite;
+        }
+
+        @keyframes cardShine {
+            0% { transform: translate(-50%, -50%) rotate(0deg); }
+            100% { transform: translate(-50%, -50%) rotate(360deg); }
+        }
+
+        .card-front.visa {
+            background: linear-gradient(135deg, #1A1F71 0%, #0D47A1 100%);
+            animation: cardEntry 0.6s ease-out;
+            box-shadow: 0 20px 60px rgba(26, 31, 113, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.1);
+        }
+
+        .card-front.visa::after {
+            content: '';
+            position: absolute;
+            top: 0;
+            right: 0;
+            width: 180px;
+            height: 180px;
+            background: radial-gradient(circle at center, rgba(13, 71, 161, 0.4) 0%, transparent 70%);
+            border-radius: 50%;
+        }
+
+        .card-front.mastercard {
+            background: linear-gradient(135deg, #EB001B 0%, #F79E1B 50%, #FF5F00 100%);
+            animation: cardEntry 0.6s ease-out;
+            box-shadow: 0 20px 60px rgba(235, 0, 27, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.15);
+        }
+
+        .card-front.mastercard::after {
+            content: '';
+            position: absolute;
+            top: -30px;
+            right: -30px;
+            width: 220px;
+            height: 220px;
+            background: radial-gradient(circle at center, rgba(247, 158, 27, 0.3) 0%, transparent 60%);
+            border-radius: 50%;
+        }
+
+        .card-front.nu {
+            background: linear-gradient(135deg, #820AD1 0%, #5E008F 50%, #450066 100%);
+            position: relative;
+            animation: cardEntry 0.6s ease-out;
+            border: 1px solid rgba(255, 255, 255, 0.15);
+            box-shadow: 0 20px 60px rgba(130, 10, 209, 0.6), inset 0 1px 0 rgba(255, 255, 255, 0.2);
+        }
+
+        .card-front.nu::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background:
+                repeating-linear-gradient(90deg, transparent, transparent 2px, rgba(255, 255, 255, 0.03) 2px, rgba(255, 255, 255, 0.03) 4px),
+                radial-gradient(circle at 20% 80%, rgba(255, 255, 255, 0.15) 0%, transparent 50%);
+            pointer-events: none;
+        }
+
+        .card-front.nu::after {
+            content: '';
+            position: absolute;
+            top: -50%;
+            left: -50%;
+            width: 200%;
+            height: 200%;
+            background: conic-gradient(
+                from 0deg at 50% 50%,
+                transparent 0deg,
+                rgba(255, 255, 255, 0.15) 90deg,
+                transparent 180deg,
+                rgba(255, 255, 255, 0.08) 270deg,
+                transparent 360deg
+            );
+            animation: holographic 8s linear infinite;
+            opacity: 0.7;
+        }
+
+        @keyframes holographic {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        .card-front.plata {
+            background: linear-gradient(135deg, #1C2526 0%, #001A33 50%, #000814 100%);
+            position: relative;
+            animation: cardEntry 0.6s ease-out;
+            border: 1px solid rgba(42, 77, 110, 0.5);
+            box-shadow: 0 20px 60px rgba(0, 26, 51, 0.7), inset 0 2px 0 rgba(255, 255, 255, 0.1);
+        }
+
+        .card-front.plata::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background:
+                linear-gradient(135deg, transparent 40%, rgba(255, 255, 255, 0.08) 45%, rgba(255, 255, 255, 0.12) 50%, rgba(255, 255, 255, 0.08) 55%, transparent 60%),
+                repeating-linear-gradient(45deg, transparent, transparent 10px, rgba(255, 255, 255, 0.02) 10px, rgba(255, 255, 255, 0.02) 20px);
+            animation: metallic 4s ease-in-out infinite;
+        }
+
+        @keyframes metallic {
+            0%, 100% { transform: translateX(-100%); }
+            50% { transform: translateX(100%); }
+        }
+
+        .card-front.plata::after {
+            content: '';
+            position: absolute;
+            top: 10%;
+            right: 10%;
+            width: 140px;
+            height: 140px;
+            background: radial-gradient(circle at center, rgba(42, 77, 110, 0.5) 0%, transparent 70%);
+            border-radius: 50%;
+            filter: blur(30px);
+        }
+
+        .card-front.amex {
+            background: linear-gradient(135deg, #006FCF 0%, #0077CC 50%, #00A4E0 100%);
+            animation: cardEntry 0.6s ease-out;
+            box-shadow: 0 20px 60px rgba(0, 111, 207, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.2);
+        }
+
+        .card-front.amex::after {
+            content: '';
+            position: absolute;
+            bottom: -20px;
+            left: -20px;
+            width: 200px;
+            height: 200px;
+            background: radial-gradient(circle at center, rgba(0, 164, 224, 0.3) 0%, transparent 65%);
+            border-radius: 50%;
+        }
+
+        .card-front.discover {
+            background: linear-gradient(135deg, #FF6000 0%, #F26E21 50%, #FF8C42 100%);
+            animation: cardEntry 0.6s ease-out;
+            box-shadow: 0 20px 60px rgba(255, 96, 0, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.15);
+        }
+
+        .card-front.discover::after {
+            content: '';
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            width: 170px;
+            height: 170px;
+            background: radial-gradient(circle at center, rgba(255, 140, 66, 0.25) 0%, transparent 70%);
+            border-radius: 50%;
+            transform: translate(-50%, -50%);
+        }
+
+        @keyframes cardEntry {
+            0% {
+                filter: brightness(1);
+                transform: scale(1);
+            }
+            50% {
+                filter: brightness(1.2);
+                transform: scale(1.03);
+            }
+            100% {
+                filter: brightness(1);
+                transform: scale(1);
+            }
+        }
+
+        .card-front.card-invalid {
+            animation: cardShakeError 0.5s cubic-bezier(.36, .07, .19, .97);
+        }
+
+        @keyframes cardShakeError {
+            10%, 90% { transform: translate3d(-3px, 0, 0); }
+            20%, 80% { transform: translate3d(5px, 0, 0); }
+            30%, 50%, 70% { transform: translate3d(-7px, 0, 0); }
+            40%, 60% { transform: translate3d(7px, 0, 0); }
+        }
+
+        .card-back {
+            background: linear-gradient(135deg, #434343 0%, #000000 100%);
+            transform: rotateY(180deg);
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.4);
+        }
+
+        .card-back.visa {
+            background: linear-gradient(135deg, #1A1F71 0%, #0D47A1 100%);
+            box-shadow: 0 20px 60px rgba(26, 31, 113, 0.5);
+        }
+
+        .card-back.mastercard {
+            background: linear-gradient(135deg, #EB001B 0%, #F79E1B 50%, #FF5F00 100%);
+            box-shadow: 0 20px 60px rgba(235, 0, 27, 0.5);
+        }
+
+        .card-back.nu {
+            background: linear-gradient(135deg, #5E008F 0%, #3C005B 50%, #2A0044 100%);
+            box-shadow: 0 20px 60px rgba(94, 0, 143, 0.5);
+        }
+
+        .card-back.plata {
+            background: linear-gradient(135deg, #001A33 0%, #000814 50%, #000000 100%);
+            box-shadow: 0 20px 60px rgba(0, 26, 51, 0.6);
+        }
+
+        .card-back.amex {
+            background: linear-gradient(135deg, #006FCF 0%, #00A4E0 100%);
+            box-shadow: 0 20px 60px rgba(0, 111, 207, 0.5);
+        }
+
+        .card-back.discover {
+            background: linear-gradient(135deg, #FF6000 0%, #F26E21 100%);
+            box-shadow: 0 20px 60px rgba(255, 96, 0, 0.5);
+        }
+
+        .card-visual {
+            height: 100%;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            position: relative;
+            z-index: 1;
+        }
+
+        .card-logo-container {
+            display: flex;
+            justify-content: flex-end;
+            font-size: 36px;
+            color: white;
+            filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.3));
+        }
+
+        .card-chip {
+            width: 54px;
+            height: 44px;
+            background: linear-gradient(135deg, #FFD700 0%, #FFA500 50%, #B8860B 100%);
+            border-radius: 10px;
+            position: relative;
+            box-shadow:
+                inset 0 3px 6px rgba(255, 255, 255, 0.4),
+                inset 0 -3px 6px rgba(0, 0, 0, 0.4),
+                0 3px 10px rgba(0, 0, 0, 0.3);
+        }
+
+        .card-chip::before {
+            content: '';
+            position: absolute;
+            top: 8px;
+            left: 8px;
+            right: 8px;
+            bottom: 8px;
+            background:
+                repeating-linear-gradient(90deg, rgba(0, 0, 0, 0.15) 0px, rgba(0, 0, 0, 0.15) 1px, transparent 1px, transparent 4px),
+                repeating-linear-gradient(0deg, rgba(0, 0, 0, 0.15) 0px, rgba(0, 0, 0, 0.15) 1px, transparent 1px, transparent 4px);
+            border-radius: 6px;
+        }
+
+        .card-chip::after {
+            content: '';
+            position: absolute;
+            top: 3px;
+            left: 3px;
+            right: 3px;
+            height: 50%;
+            background: linear-gradient(180deg, rgba(255, 255, 255, 0.5) 0%, transparent 100%);
+            border-radius: 8px 8px 0 0;
+        }
+
+        .card-number-display {
+            font-size: 26px;
+            letter-spacing: 4px;
+            font-weight: 600;
+            color: white;
+            margin: 24px 0;
+            text-shadow: 0 3px 6px rgba(0, 0, 0, 0.4);
+            font-family: 'Courier New', monospace;
+        }
+
+        .card-details-display {
+            display: flex;
+            justify-content: space-between;
+        }
+
+        .card-detail-label {
+            font-size: 10px;
+            text-transform: uppercase;
+            opacity: 0.8;
+            color: white;
+            letter-spacing: 1px;
+            font-weight: 600;
+        }
+
+        .card-detail-value {
+            font-size: 17px;
+            font-weight: 700;
+            color: white;
+            margin-top: 6px;
+            text-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
+            text-transform: uppercase;
+        }
+
+        .card-magnetic-strip {
+            width: 100%;
+            height: 56px;
+            background: linear-gradient(180deg, #000 0%, #1a1a1a 50%, #000 100%);
+            margin: 24px 0;
+            box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.5);
+        }
+
+        .card-cvc-display {
+            display: flex;
+            justify-content: flex-end;
+            align-items: center;
+            gap: 14px;
+            background: white;
+            padding: 12px 24px;
+            border-radius: 10px;
+            margin-top: 36px;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+        }
+
+        .card-cvc-label {
+            font-size: 13px;
+            color: #5f6368;
+            font-weight: 600;
+        }
+
+        .card-cvc-value {
+            font-size: 20px;
+            font-weight: 700;
+            color: var(--dark-text);
+            font-family: 'Courier New', monospace;
+        }
+
+        .card-input-grid {
+            display: grid;
+            gap: 24px;
+        }
+
+        .card-input-group {
+            position: relative;
+        }
+
+        .card-input-label {
+            font-size: 14px;
+            font-weight: 600;
+            color: #5f6368;
+            margin-bottom: 10px;
+            display: block;
+        }
+
+        .card-input-field {
+            width: 100%;
+            height: 56px;
+            border: 2px solid #dadce0;
+            border-radius: 14px;
+            padding: 0 56px 0 18px;
+            font-size: 16px;
+            color: var(--dark-text);
+            transition: all 0.3s ease;
+            font-weight: 500;
+        }
+
+        .card-input-field:focus {
+            outline: none;
+            border-color: var(--primary-blue);
+            box-shadow: 0 0 0 4px rgba(66, 133, 244, 0.15);
+            transform: translateY(-2px);
+        }
+
+        .card-input-field.valid {
+            border-color: var(--primary-green);
+            background: linear-gradient(135deg, #f8fbf8 0%, #f0f8f2 100%);
+        }
+
+        .card-input-field.invalid {
+            border-color: var(--error-red);
+            background: #fef7f6;
+            animation: shake 0.4s cubic-bezier(.36, .07, .19, .97);
+        }
+
+        .card-input-row {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 24px;
+        }
+
+        .card-brand-icon {
+            position: absolute;
+            right: 18px;
+            top: 48px;
+            font-size: 32px;
+            opacity: 0.3;
+            transition: all 0.3s ease;
+        }
+
+        .card-brand-icon.active {
+            opacity: 1;
+            animation: iconPop 0.4s cubic-bezier(0.68, -0.55, 0.265, 1.55);
+        }
+
+        @keyframes iconPop {
+            0% { transform: scale(0); }
+            50% { transform: scale(1.2); }
+            100% { transform: scale(1); }
+        }
+
+        .card-error-message {
+            color: var(--error-red);
+            font-size: 13px;
+            font-weight: 600;
+            margin-top: 8px;
+            display: none;
+            animation: slideDown 0.3s ease-in;
+        }
+
+        .card-error-message.show {
+            display: block;
+        }
+
+        @keyframes slideDown {
+            from {
+                opacity: 0;
+                transform: translateY(-8px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        .luhn-validator {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-top: 10px;
+            font-size: 13px;
+            font-weight: 600;
+            opacity: 0;
+            transform: translateY(-5px);
+            transition: all 0.3s ease;
+        }
+
+        .luhn-validator.show {
+            opacity: 1;
+            transform: translateY(0);
+        }
+
+        .luhn-validator.valid {
+            color: var(--primary-green);
+        }
+
+        .luhn-validator.invalid {
+            color: var(--error-red);
+        }
+
+        .card-type-badge {
+            display: inline-block;
+            padding: 6px 14px;
+            border-radius: 10px;
+            font-size: 11px;
+            font-weight: 700;
+            margin-top: 10px;
+            text-transform: uppercase;
+            letter-spacing: 0.8px;
+        }
+
+        .card-type-badge.credit {
+            background: linear-gradient(135deg, #e6f4ea 0%, #d4ede0 100%);
+            color: var(--primary-green);
+        }
+
+        .card-type-badge.debit {
+            background: linear-gradient(135deg, #e8f0fe 0%, #d2e3fc 100%);
+            color: var(--primary-blue);
+        }
+
+        .card-type-badge.invalid {
+            background: #fef7f6;
+            color: var(--error-red);
+        }
+
+        .security-badges {
+            display: flex;
+            gap: 24px;
+            flex-wrap: wrap;
+            margin-top: 32px;
+            padding-top: 32px;
+            border-top: 2px solid rgba(0, 0, 0, 0.05);
+        }
+
+        .security-badge {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            color: #5f6368;
+            font-size: 14px;
+            font-weight: 600;
+        }
+
+        .security-badge i {
+            color: var(--primary-green);
+            font-size: 16px;
+        }
+
+        .right-section {
+            position: sticky;
+            top: 40px;
+            height: fit-content;
+        }
+
+        .summary-card {
+            padding: 40px;
+        }
+
+        .summary-title {
+            font-size: 22px;
+            font-weight: 700;
+            color: var(--dark-text);
+            margin-bottom: 28px;
+        }
+
+        .plan-badge {
+            background: linear-gradient(135deg, var(--primary-blue) 0%, var(--primary-green) 100%);
+            border-radius: 20px;
+            padding: 28px;
+            color: white;
+            margin-bottom: 28px;
+            box-shadow: 0 12px 32px rgba(66, 133, 244, 0.3);
+            position: relative;
+            overflow: hidden;
+        }
+
+        .plan-badge::before {
+            content: '';
+            position: absolute;
+            top: -50%;
+            right: -50%;
+            width: 200%;
+            height: 200%;
+            background: radial-gradient(circle at center, rgba(255, 255, 255, 0.1) 0%, transparent 70%);
+            animation: planGlow 4s ease-in-out infinite;
+        }
+
+        @keyframes planGlow {
+            0%, 100% { transform: translate(0, 0); }
+            50% { transform: translate(-20px, 20px); }
+        }
+
+        .plan-name {
+            font-size: 16px;
+            margin-bottom: 12px;
+            opacity: 0.95;
+            font-weight: 600;
+            position: relative;
+            z-index: 1;
+        }
+
+        .plan-price {
+            font-size: 42px;
+            font-weight: 800;
+            margin-bottom: 6px;
+            position: relative;
+            z-index: 1;
+        }
+
+        .plan-period {
+            font-size: 15px;
+            opacity: 0.85;
+            font-weight: 500;
+            position: relative;
+            z-index: 1;
+        }
+
+        .summary-item {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 18px;
+            font-size: 15px;
+            color: #5f6368;
+            font-weight: 500;
+        }
+
+        .summary-item.total {
+            font-size: 22px;
+            font-weight: 700;
+            color: var(--dark-text);
+            padding-top: 20px;
+            border-top: 2px solid rgba(0, 0, 0, 0.1);
+            margin-top: 12px;
+        }
+
+        .pay-button {
+            width: 100%;
+            height: 60px;
+            background: linear-gradient(135deg, var(--primary-blue) 0%, var(--primary-green) 100%);
+            border: none;
+            border-radius: 14px;
+            color: white;
+            font-size: 17px;
+            font-weight: 700;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 14px;
+            transition: all 0.3s ease;
+            box-shadow: 0 12px 24px rgba(66, 133, 244, 0.3);
+            position: relative;
+            overflow: hidden;
+        }
+
+        .pay-button::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: -100%;
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.2), transparent);
+            transition: left 0.5s ease;
+        }
+
+        .pay-button:hover:not(:disabled)::before {
+            left: 100%;
+        }
+
+        .pay-button:hover:not(:disabled) {
+            transform: translateY(-3px);
+            box-shadow: 0 16px 32px rgba(66, 133, 244, 0.4);
+        }
+
+        .pay-button:active:not(:disabled) {
+            transform: translateY(-1px);
+        }
+
+        .pay-button:disabled {
+            opacity: 0.7;
+            cursor: not-allowed;
+        }
+
+        .pay-button.processing {
+            background: linear-gradient(135deg, #9aa0a6 0%, #80868b 100%);
+        }
+
+        .spinner {
+            width: 22px;
+            height: 22px;
+            border: 3px solid rgba(255, 255, 255, 0.3);
+            border-top-color: white;
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        .success-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(255, 255, 255, 0.98);
+            backdrop-filter: blur(20px);
+            display: none;
+            align-items: center;
+            justify-content: center;
+            z-index: 2000;
+        }
+
+        .success-overlay.active {
+            display: flex;
+        }
+
+        .success-message {
+            text-align: center;
+            animation: successEntry 0.6s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+
+        @keyframes successEntry {
+            from {
+                transform: scale(0.7);
+                opacity: 0;
+            }
+            to {
+                transform: scale(1);
+                opacity: 1;
+            }
+        }
+
+        .success-icon {
+            width: 100px;
+            height: 100px;
+            background: linear-gradient(135deg, var(--primary-green) 0%, #2d8e44 100%);
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            font-size: 50px;
+            margin: 0 auto 28px;
+            box-shadow: 0 16px 32px rgba(52, 168, 83, 0.4);
+            animation: successIconBounce 0.6s cubic-bezier(0.68, -0.55, 0.265, 1.55);
+        }
+
+        @keyframes successIconBounce {
+            0% { transform: scale(0); }
+            50% { transform: scale(1.15); }
+            100% { transform: scale(1); }
+        }
+
+        .success-title {
+            font-size: 32px;
+            font-weight: 800;
+            color: var(--dark-text);
+            margin-bottom: 16px;
+        }
+
+        .success-text {
+            font-size: 17px;
+            color: #5f6368;
+            font-weight: 500;
+        }
+
+        .error-modal {
+            background: white;
+            border-radius: 24px;
+            padding: 48px;
+            max-width: 440px;
+            text-align: center;
+            box-shadow: 0 24px 72px rgba(0, 0, 0, 0.3);
+            opacity: 0;
+            transform: scale(0.85);
+            transition: all 0.3s ease;
+        }
+
+        .error-modal.active {
+            opacity: 1;
+            transform: scale(1);
+            animation: errorPulse 0.6s cubic-bezier(.36, .07, .19, .97);
+        }
+
+        @keyframes errorPulse {
+            0%, 100% { transform: scale(1); }
+            50% { transform: scale(1.05); }
+        }
+
+        .error-icon {
+            width: 100px;
+            height: 100px;
+            background: linear-gradient(135deg, #fef7f6 0%, #fce8e6 100%);
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: var(--error-red);
+            font-size: 50px;
+            margin: 0 auto 24px;
+            animation: errorIconEntry 0.8s cubic-bezier(.36, .07, .19, .97);
+            position: relative;
+        }
+
+        @keyframes errorIconEntry {
+            0% { transform: scale(0) rotate(-180deg); }
+            50% { transform: scale(1.15) rotate(10deg); }
+            100% { transform: scale(1) rotate(0deg); }
+        }
+
+        .error-icon::after {
+            content: '';
+            position: absolute;
+            width: 100%;
+            height: 100%;
+            border-radius: 50%;
+            border: 3px solid var(--error-red);
+            animation: errorRipple 1.5s ease-out infinite;
+        }
+
+        @keyframes errorRipple {
+            0% {
+                transform: scale(1);
+                opacity: 1;
+            }
+            100% {
+                transform: scale(1.6);
+                opacity: 0;
+            }
+        }
+
+        .error-title {
+            font-size: 26px;
+            font-weight: 700;
+            color: var(--dark-text);
+            margin-bottom: 16px;
+        }
+
+        .error-text {
+            font-size: 16px;
+            color: #5f6368;
+            margin-bottom: 28px;
+            line-height: 1.6;
+            font-weight: 500;
+        }
+
+        .declined-animation {
+            width: 100%;
+            height: 6px;
+            background: rgba(224, 224, 224, 0.5);
+            border-radius: 3px;
+            overflow: hidden;
+            margin-bottom: 28px;
+        }
+
+        .declined-bar {
+            height: 100%;
+            background: var(--error-red);
+            width: 0%;
+            animation: declinedProgress 2s ease-in-out forwards;
+        }
+
+        @keyframes declinedProgress {
+            0% {
+                width: 0%;
+                background: var(--primary-blue);
+            }
+            50% {
+                width: 100%;
+                background: var(--warning-yellow);
+            }
+            100% {
+                width: 100%;
+                background: var(--error-red);
+            }
+        }
+
+        .error-button {
+            background: linear-gradient(135deg, var(--primary-blue) 0%, #3367d6 100%);
+            border: none;
+            border-radius: 12px;
+            padding: 16px 40px;
+            font-size: 16px;
+            font-weight: 700;
+            color: white;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            box-shadow: 0 4px 12px rgba(66, 133, 244, 0.3);
+        }
+
+        .error-button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 16px rgba(66, 133, 244, 0.4);
+        }
+
+        .validation-alert {
+            position: fixed;
+            bottom: 40px;
+            left: 50%;
+            transform: translateX(-50%) translateY(120px);
+            background: var(--dark-text);
+            color: white;
+            padding: 18px 28px;
+            border-radius: 14px;
+            display: flex;
+            align-items: center;
+            gap: 14px;
+            box-shadow: 0 12px 32px rgba(0, 0, 0, 0.4);
+            z-index: 1500;
+            opacity: 0;
+            transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+
+        .validation-alert.show {
+            transform: translateX(-50%) translateY(0);
+            opacity: 1;
+        }
+
+        .validation-alert-text {
+            font-size: 15px;
+            font-weight: 600;
+        }
+
+        @media (max-width: 1024px) {
+            .container {
+                grid-template-columns: 1fr;
+            }
+            .right-section {
+                position: static;
+            }
+        }
+
+        @media (max-width: 768px) {
+            body {
+                padding: 20px 16px;
+            }
+            .left-section, .summary-card {
+                padding: 32px 24px;
+            }
+            .form-row, .card-input-row {
+                flex-direction: column;
+                grid-template-columns: 1fr;
+            }
+            .main-title {
+                font-size: 28px;
+            }
+            .card-flip-container {
+                height: 240px;
+            }
+        }
     </style>
 </head>
 <body>
     <div class="container">
         <div class="left-section glass-card">
-            <!-- Contenido del formulario... -->
+            <div class="logo">
+                <div class="logo-icon">Y</div>
+                <div class="logo-text">YoPracticando</div>
+            </div>
+
+            <h1 class="main-title">Completa tu suscripción</h1>
+            <p class="subtitle">Accede a los mejores estudiantes universitarios y construye tu programa de prácticas profesionales.</p>
+
+            <div class="progress-container">
+                <h3 class="progress-title">Proceso de Suscripción</h3>
+                <div class="step-connector">
+                    <div class="step-connector-fill" id="connector-fill"></div>
+                </div>
+                <div class="steps">
+                    <div class="step completed" id="step-1">
+                        <div class="step-icon"><i class="fas fa-crown"></i></div>
+                        <div class="step-label">Plan</div>
+                    </div>
+                    <div class="step active" id="step-2">
+                        <div class="step-icon"><i class="fas fa-user"></i></div>
+                        <div class="step-label">Información</div>
+                    </div>
+                    <div class="step inactive" id="step-3">
+                        <div class="step-icon"><i class="fas fa-credit-card"></i></div>
+                        <div class="step-label">Pago</div>
+                    </div>
+                    <div class="step inactive" id="step-4">
+                        <div class="step-icon"><i class="fas fa-check"></i></div>
+                        <div class="step-label">Confirmación</div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="section">
+                <div class="section-header" id="personal-header">
+                    <div class="section-icon"><i class="fas fa-user"></i></div>
+                    <h2 class="section-title">Información Personal</h2>
+                    <div class="section-complete-badge"><i class="fas fa-check"></i><span>Completo</span></div>
+                </div>
+                <div class="form-row">
+                    <div class="input-group">
+                        <label class="input-label">Nombre completo *</label>
+                        <input type="text" class="input-field" id="nombre" placeholder="Ej: Juan Pérez">
+                        <i class="fas fa-check-circle input-icon"></i>
+                    </div>
+                    <div class="input-group">
+                        <label class="input-label">Correo electrónico *</label>
+                        <input type="email" class="input-field" id="email" placeholder="tu@email.com">
+                        <i class="fas fa-check-circle input-icon"></i>
+                    </div>
+                </div>
+                <div class="form-row">
+                    <div class="input-group">
+                        <label class="input-label">País *</label>
+                        <div class="custom-select">
+                            <div class="select-trigger" id="country-trigger">
+                                <div class="selected-option" id="selected-country">
+                                    <span>Selecciona un país</span>
+                                </div>
+                                <i class="fas fa-chevron-down"></i>
+                            </div>
+                            <div class="select-options" id="country-select">
+                                <div class="select-option" data-value="🇦🇷 Argentina" data-code="+54" data-format="### ### ####">🇦🇷 Argentina</div>
+                                <div class="select-option" data-value="🇧🇸 Bahamas" data-code="+1242" data-format="### ####">🇧🇸 Bahamas</div>
+                                <div class="select-option" data-value="🇧🇧 Barbados" data-code="+1246" data-format="### ####">🇧🇧 Barbados</div>
+                                <div class="select-option" data-value="🇧🇿 Belice" data-code="+501" data-format="### ####">🇧🇿 Belice</div>
+                                <div class="select-option" data-value="🇧🇴 Bolivia" data-code="+591" data-format="### ####">🇧🇴 Bolivia</div>
+                                <div class="select-option" data-value="🇧🇷 Brasil" data-code="+55" data-format="## ##### ####">🇧🇷 Brasil</div>
+                                <div class="select-option" data-value="🇨🇦 Canadá" data-code="+1" data-format="### ### ####">🇨🇦 Canadá</div>
+                                <div class="select-option" data-value="🇨🇱 Chile" data-code="+56" data-format="## ### ####">🇨🇱 Chile</div>
+                                <div class="select-option" data-value="🇨🇴 Colombia" data-code="+57" data-format="### ### ####">🇨🇴 Colombia</div>
+                                <div class="select-option" data-value="🇨🇷 Costa Rica" data-code="+506" data-format="#### ####">🇨🇷 Costa Rica</div>
+                                <div class="select-option" data-value="🇨🇺 Cuba" data-code="+53" data-format="### ####">🇨🇺 Cuba</div>
+                                <div class="select-option" data-value="🇩🇴 República Dominicana" data-code="+1" data-format="### ### ####">🇩🇴 República Dominicana</div>
+                                <div class="select-option" data-value="🇪🇨 Ecuador" data-code="+593" data-format="## ### ####">🇪🇨 Ecuador</div>
+                                <div class="select-option" data-value="🇸🇻 El Salvador" data-code="+503" data-format="#### ####">🇸🇻 El Salvador</div>
+                                <div class="select-option" data-value="🇬🇹 Guatemala" data-code="+502" data-format="#### ####">🇬🇹 Guatemala</div>
+                                <div class="select-option" data-value="🇭🇳 Honduras" data-code="+504" data-format="#### ####">🇭🇳 Honduras</div>
+                                <div class="select-option" data-value="🇯🇲 Jamaica" data-code="+1876" data-format="### ####">🇯🇲 Jamaica</div>
+                                <div class="select-option" data-value="🇲🇽 México" data-code="+52" data-format="### ### ####">🇲🇽 México</div>
+                                <div class="select-option" data-value="🇳🇮 Nicaragua" data-code="+505" data-format="#### ####">🇳🇮 Nicaragua</div>
+                                <div class="select-option" data-value="🇵🇦 Panamá" data-code="+507" data-format="### ####">🇵🇦 Panamá</div>
+                                <div class="select-option" data-value="🇵🇾 Paraguay" data-code="+595" data-format="### ### ####">🇵🇾 Paraguay</div>
+                                <div class="select-option" data-value="🇵🇪 Perú" data-code="+51" data-format="### ### ###">🇵🇪 Perú</div>
+                                <div class="select-option" data-value="🇺🇸 Estados Unidos" data-code="+1" data-format="### ### ####">🇺🇸 Estados Unidos</div>
+                                <div class="select-option" data-value="🇺🇾 Uruguay" data-code="+598" data-format="## ### ####">🇺🇾 Uruguay</div>
+                                <div class="select-option" data-value="🇻🇪 Venezuela" data-code="+58" data-format="### ### ####">🇻🇪 Venezuela</div>
+                            </div>
+                        </div>
+                        <i class="fas fa-check-circle input-icon" style="top: 50px;"></i>
+                    </div>
+                    <div class="input-group">
+                        <label class="input-label">Teléfono *</label>
+                        <div class="phone-input">
+                            <span id="country-code" class="country-code">+52</span>
+                            <input type="tel" class="input-field" id="telefono" placeholder="### ### ####" data-format="### ### ####">
+                        </div>
+                        <i class="fas fa-check-circle input-icon"></i>
+                    </div>
+                </div>
+            </div>
+
+            <div class="section">
+                <div class="section-header" id="business-header">
+                    <div class="section-icon"><i class="fas fa-building"></i></div>
+                    <h2 class="section-title">Información Empresarial</h2>
+                    <div class="section-complete-badge"><i class="fas fa-check"></i><span>Completo</span></div>
+                </div>
+                <div class="form-row">
+                    <div class="input-group">
+                        <label class="input-label">Nombre de la empresa *</label>
+                        <input type="text" class="input-field" id="compania" placeholder="Nombre de tu empresa">
+                        <i class="fas fa-check-circle input-icon"></i>
+                    </div>
+                </div>
+                <div class="form-row">
+                    <div class="input-group">
+                        <label class="input-label">Dirección completa *</label>
+                        <textarea class="input-field" id="direccion" placeholder="Calle, número, colonia, ciudad, estado, código postal"></textarea>
+                        <i class="fas fa-check-circle input-icon" style="top: 50px;"></i>
+                    </div>
+                </div>
+            </div>
+
             <div class="section">
                 <div class="section-header" id="payment-header">
                     <div class="section-icon"><i class="fas fa-credit-card"></i></div>
                     <h2 class="section-title">Información de Pago</h2>
                     <div class="section-complete-badge"><i class="fas fa-check"></i><span>Completo</span></div>
                 </div>
+
                 <div class="card-container">
-                    <!-- ... tarjeta 3D ... -->
+                    <div class="card-flip-container" id="card-flip-container">
+                        <div class="card-face card-front" id="card-front">
+                            <div class="card-visual">
+                                <div class="card-logo-container" id="card-brand">
+                                    <i class="fas fa-credit-card"></i>
+                                </div>
+                                <div class="card-chip"></div>
+                                <div class="card-number-display" id="card-display-number">•••• •••• •••• ••••</div>
+                                <div class="card-details-display">
+                                    <div class="card-detail-item">
+                                        <div class="card-detail-label">Titular</div>
+                                        <div class="card-detail-value" id="card-display-name">NOMBRE APELLIDO</div>
+                                    </div>
+                                    <div class="card-detail-item">
+                                        <div class="card-detail-label">Válido hasta</div>
+                                        <div class="card-detail-value" id="card-display-expiry">MM/AA</div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="card-face card-back" id="card-back">
+                            <div class="card-magnetic-strip"></div>
+                            <div class="card-cvc-display">
+                                <div class="card-cvc-label">CVC</div>
+                                <div class="card-cvc-value" id="card-display-cvc">•••</div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="card-input-grid">
+                        <div class="card-input-group">
+                            <label class="card-input-label">Número de tarjeta *</label>
+                            <input type="text" class="card-input-field" id="card-number" placeholder="1234 5678 9012 3456" maxlength="19">
+                            <div class="card-brand-icon" id="card-brand-icon">
+                                <i class="fas fa-credit-card"></i>
+                            </div>
+                            <div class="luhn-validator" id="luhn-validator">
+                                <i class="fas fa-shield-alt"></i>
+                                <span id="luhn-text">Validando tarjeta...</span>
+                            </div>
+                            <div class="card-error-message" id="card-number-error">Número de tarjeta inválido</div>
+                            <div id="card-type-display"></div>
+                        </div>
+                        <div class="card-input-group">
+                            <label class="card-input-label">Nombre en la tarjeta *</label>
+                            <input type="text" class="card-input-field" id="card-name" placeholder="JUAN PEREZ" style="text-transform: uppercase;">
+                            <div class="card-error-message" id="card-name-error">Nombre inválido</div>
+                        </div>
+                        <div class="card-input-row">
+                            <div class="card-input-group">
+                                <label class="card-input-label">Fecha de expiración *</label>
+                                <input type="text" class="card-input-field" id="card-expiry" placeholder="MM/AA" maxlength="5">
+                                <div class="card-error-message" id="card-expiry-error">Fecha inválida o expirada</div>
+                            </div>
+                            <div class="card-input-group">
+                                <label class="card-input-label">CVC *</label>
+                                <input type="text" class="card-input-field" id="card-cvc" placeholder="123" maxlength="4">
+                                <div class="card-error-message" id="card-cvc-error">CVC inválido</div>
+                            </div>
+                        </div>
+                        <div class="card-input-group">
+                            <label class="card-input-label">Código postal *</label>
+                            <input type="text" class="card-input-field" id="card-zip" placeholder="12345" maxlength="10">
+                            <div class="card-error-message" id="card-zip-error">Código postal inválido</div>
+                        </div>
+                    </div>
                 </div>
-                <div class="card-input-grid">
-                    <div class="card-input-group">
-                        <label class="card-input-label">Número de tarjeta *</label>
-                        <div class="card-input-field" id="card-number-element"><div class="card-brand-icon" id="card-brand-icon"><i class="fas fa-credit-card"></i></div></div>
-                        <div class="card-error-message" id="cardNumber-error"></div>
-                    </div>
-                    <div class="card-input-group">
-                        <label class="card-input-label">Nombre en la tarjeta *</label>
-                        <input type="text" class="input-field" id="card-name">
-                        <div class="card-error-message" id="cardName-error"></div>
-                    </div>
-                    <div class="card-input-row">
-                        <div class="card-input-group">
-                            <label class="card-input-label">Fecha de expiración *</label>
-                            <div class="card-input-field" id="card-expiry-element"></div>
-                            <div class="card-error-message" id="cardExpiry-error"></div>
-                        </div>
-                        <div class="card-input-group">
-                            <label class="card-input-label">CVC *</label>
-                            <div class="card-input-field" id="card-cvc-element"></div>
-                            <div class="card-error-message" id="cardCvc-error"></div>
-                        </div>
-                    </div>
-                    <div class="card-input-group">
-                        <label class="card-input-label">Código postal *</label>
-                        <input type="text" class="input-field" id="card-zip">
-                        <div class="card-error-message" id="cardZip-error"></div>
-                    </div>
+
+                <div class="security-badges">
+                    <div class="security-badge"><i class="fas fa-shield-alt"></i><span>Pago 100% seguro</span></div>
+                    <div class="security-badge"><i class="fas fa-lock"></i><span>Encriptación SSL</span></div>
+                    <div class="security-badge"><i class="fab fa-stripe"></i><span>Powered by Stripe</span></div>
                 </div>
             </div>
         </div>
+
         <div class="right-section">
-            <!-- ... resumen del pedido ... -->
-            <button class="pay-button" id="pay-button">
-                <span id="button-text">Pagar <?php echo htmlspecialchars($displayPrice); ?> <?php echo htmlspecialchars($displayCurrency); ?></span>
-            </button>
+            <div class="summary-card glass-card">
+                <h3 class="summary-title">Resumen del pedido</h3>
+                <div class="plan-badge">
+                    <div class="plan-name">Suscripción mensual (Empresarial)</div>
+                    <div class="plan-price">$20.00</div>
+                    <div class="plan-period">MXN</div>
+                </div>
+                <div class="summary-item">
+                    <span>Suscripción mensual</span>
+                    <span>$20.00 MXN</span>
+                </div>
+                <div class="summary-item">
+                    <span>Impuestos</span>
+                    <span>$0.00 MXN</span>
+                </div>
+                <div class="summary-item total">
+                    <span>Total</span>
+                    <span>$20.00 MXN</span>
+                </div>
+                <button class="pay-button" id="pay-button">
+                    <i class="fas fa-lock"></i>
+                    <span id="button-text">Pagar $20.00 MXN</span>
+                </button>
+            </div>
         </div>
     </div>
-    <!-- ... modales de éxito y error ... -->
-<script>
-document.addEventListener('DOMContentLoaded', function () {
-    const stripe = Stripe('<?php echo $stripeLivePublishableKey; ?>');
-    const elements = stripe.elements({ locale: 'es' });
-    const elementStyles = {
-        base: { color: '#202124', fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif', fontSize: '16px', '::placeholder': { color: '#aab7c4' } },
-        invalid: { color: '#ea4335', iconColor: '#ea4335' }
-    };
-    const cardNumber = elements.create('cardNumber', { style: elementStyles, showIcon: true, iconStyle: 'solid' });
-    cardNumber.mount('#card-number-element');
-    const cardExpiry = elements.create('cardExpiry', { style: elementStyles });
-    cardExpiry.mount('#card-expiry-element');
-    const cardCvc = elements.create('cardCvc', { style: elementStyles });
-    cardCvc.mount('#card-cvc-element');
 
-    const formElements = {
-        nombre: document.getElementById('nombre'), email: document.getElementById('email'), pais: document.getElementById('selected-country'),
-        telefono: document.getElementById('telefono'), compania: document.getElementById('compania'), direccion: document.getElementById('direccion'),
-        cardName: document.getElementById('card-name'), cardZip: document.getElementById('card-zip'), payButton: document.getElementById('pay-button')
-    };
+    <div class="success-overlay" id="success-overlay">
+        <div class="success-message">
+            <div class="success-icon"><i class="fas fa-check"></i></div>
+            <div class="success-title">¡Pago procesado exitosamente!</div>
+            <p class="success-text">Tu suscripción ha sido activada. Redirigiendo...</p>
+        </div>
+    </div>
 
-    const formState = {};
-    const fieldsToValidate = ['nombre', 'email', 'telefono', 'compania', 'direccion', 'card-name', 'card-zip'];
-    fieldsToValidate.forEach(id => formState[id] = false);
-    ['cardNumber', 'cardExpiry', 'cardCvc'].forEach(name => formState[name] = false);
+    <div class="success-overlay" id="error-overlay">
+        <div class="error-modal" id="error-modal">
+            <div class="error-icon"><i class="fas fa-times"></i></div>
+            <div class="error-title" id="error-title">Error en el pago</div>
+            <p class="error-text" id="error-text">Ha ocurrido un error al procesar tu pago.</p>
+            <div class="declined-animation">
+                <div class="declined-bar"></div>
+            </div>
+            <button class="error-button" id="error-button">Entendido</button>
+        </div>
+    </div>
 
-    function setupStripeElementValidation(element, name) {
-        element.on('change', function(event) {
-            formState[name] = event.complete;
-            const errorElement = document.getElementById(name + '-error');
-            const fieldContainer = element._component.parentElement;
-            fieldContainer.classList.toggle('invalid', !!event.error);
-            if (errorElement) {
-                errorElement.textContent = event.error ? event.error.message : '';
-                errorElement.classList.toggle('show', !!event.error);
+    <div class="validation-alert" id="validation-alert">
+        <i class="fas fa-exclamation-circle"></i>
+        <span class="validation-alert-text" id="alert-text">Por favor completa todos los campos</span>
+    </div>
+ <script>
+        let formState = {
+            nombre: false,
+            email: false,
+            pais: false,
+            telefono: false,
+            compania: false,
+            direccion: false,
+            cardNumber: false,
+            cardName: false,
+            cardExpiry: false,
+            cardCVC: false,
+            cardZip: false
+        };
+
+        const phoneFormats = {
+            'AR': { code: '+54', format: '### ### ####', length: 10 },
+            'BS': { code: '+1242', format: '### ####', length: 7 },
+            'BB': { code: '+1246', format: '### ####', length: 7 },
+            'BZ': { code: '+501', format: '### ####', length: 7 },
+            'BO': { code: '+591', format: '### ####', length: 7 },
+            'BR': { code: '+55', format: '## ##### ####', length: 11 },
+            'CA': { code: '+1', format: '### ### ####', length: 10 },
+            'CL': { code: '+56', format: '## ### ####', length: 9 },
+            'CO': { code: '+57', format: '### ### ####', length: 10 },
+            'CR': { code: '+506', format: '#### ####', length: 8 },
+            'CU': { code: '+53', format: '### ####', length: 7 },
+            'DO': { code: '+1', format: '### ### ####', length: 10 },
+            'EC': { code: '+593', format: '## ### ####', length: 9 },
+            'SV': { code: '+503', format: '#### ####', length: 8 },
+            'GT': { code: '+502', format: '#### ####', length: 8 },
+            'HN': { code: '+504', format: '#### ####', length: 8 },
+            'JM': { code: '+1876', format: '### ####', length: 7 },
+            'MX': { code: '+52', format: '### ### ####', length: 10 },
+            'NI': { code: '+505', format: '#### ####', length: 8 },
+            'PA': { code: '+507', format: '### ####', length: 7 },
+            'PY': { code: '+595', format: '### ### ####', length: 10 },
+            'PE': { code: '+51', format: '### ### ###', length: 9 },
+            'US': { code: '+1', format: '### ### ####', length: 10 },
+            'UY': { code: '+598', format: '## ### ####', length: 9 },
+            'VE': { code: '+58', format: '### ### ####', length: 10 }
+        };
+
+        function luhnCheck(cardNumber) {
+            const digits = cardNumber.replace(/\D/g, '');
+            if (digits.length < 13 || digits.length > 19) return false;
+
+            let sum = 0;
+            let isEven = false;
+
+            for (let i = digits.length - 1; i >= 0; i--) {
+                let digit = parseInt(digits[i], 10);
+                if (isEven) {
+                    digit *= 2;
+                    if (digit > 9) digit -= 9;
+                }
+                sum += digit;
+                isEven = !isEven;
             }
-        });
-    }
-    setupStripeElementValidation(cardNumber, 'cardNumber');
-    setupStripeElementValidation(cardExpiry, 'cardExpiry');
-    setupStripeElementValidation(cardCvc, 'cardCvc');
+            return (sum % 10) === 0;
+        }
 
-    formElements.payButton.addEventListener('click', async () => {
-        setLoading(true);
-        try {
-            const response = await fetch('pago.php', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    nombre: formElements.nombre.value, email: formElements.email.value, telefono: formElements.telefono.value,
-                    direccion: formElements.direccion.value, compania: formElements.compania.value, pais: formElements.pais.textContent.trim()
-                })
+        function detectCardType(number) {
+            const patterns = {
+                nu: {
+                    pattern: /^(536901|493601|526777)/,
+                    lengths: [16],
+                    cvcLength: 3,
+                    name: 'Nu Bank',
+                    icon: 'fas fa-piggy-bank',
+                    debitRanges: []
+                },
+                plata: {
+                    pattern: /^(520021)/,
+                    lengths: [16],
+                    cvcLength: 3,
+                    name: 'Plata Card',
+                    icon: 'fas fa-gem',
+                    debitRanges: []
+                },
+                visa: {
+                    pattern: /^4/,
+                    lengths: [13, 16, 19],
+                    cvcLength: 3,
+                    name: 'Visa',
+                    debitRanges: [
+                        { start: '400819', end: '400819' },
+                        { start: '402766', end: '402766' },
+                        { start: '409851', end: '409851' },
+                        { start: '415231', end: '415231' },
+                        { start: '416916', end: '416916' },
+                        { start: '421003', end: '421003' },
+                        { start: '421316', end: '421316' },
+                        { start: '426808', end: '426808' },
+                        { start: '429522', end: '429522' },
+                        { start: '433454', end: '433454' },
+                        { start: '441313', end: '441313' },
+                        { start: '450589', end: '450589' },
+                        { start: '455511', end: '455511' },
+                        { start: '465828', end: '465828' },
+                        { start: '474174', end: '474174' },
+                        { start: '483030', end: '483030' },
+                        { start: '491089', end: '491089' },
+                        { start: '491566', end: '491566' }
+                    ]
+                },
+                mastercard: {
+                    pattern: /^5[1-5]|^2(?:2(?:2[1-9]|[3-9])|[3-6]|7(?:[01]|20))/,
+                    lengths: [16],
+                    cvcLength: 3,
+                    name: 'Mastercard',
+                    debitRanges: [
+                        { start: '517712', end: '517712' },
+                        { start: '520416', end: '520416' },
+                        { start: '520694', end: '520694' },
+                        { start: '520698', end: '520698' },
+                        { start: '525678', end: '525678' },
+                        { start: '533609', end: '533609' },
+                        { start: '534926', end: '534926' },
+                        { start: '545290', end: '545290' },
+                        { start: '551238', end: '551238' },
+                        { start: '554492', end: '554492' },
+                        { start: '557905', end: '557905' },
+                        { start: '557907', end: '557907' },
+                        { start: '557909', end: '557909' },
+                        { start: '557910', end: '557910' }
+                    ]
+                },
+                amex: {
+                    pattern: /^3[47]/,
+                    lengths: [15],
+                    cvcLength: 4,
+                    name: 'American Express'
+                },
+                discover: {
+                    pattern: /^6(?:011|5)/,
+                    lengths: [16, 19],
+                    cvcLength: 3,
+                    name: 'Discover'
+                },
+                diners: {
+                    pattern: /^3(?:0[0-5]|[68][0-9])/,
+                    lengths: [14, 16, 19],
+                    cvcLength: 3,
+                    name: 'Diners Club'
+                }
+            };
+
+            const cleanNumber = number.replace(/\s/g, '');
+
+            for (const [key, card] of Object.entries(patterns)) {
+                if (card.pattern.test(cleanNumber)) {
+                    let cardType = 'credit';
+                    if (card.debitRanges) {
+                        const prefix = cleanNumber.substring(0, 6);
+                        for (const range of card.debitRanges) {
+                            if (prefix >= range.start && prefix <= range.end) {
+                                cardType = 'debit';
+                                break;
+                            }
+                        }
+                    }
+                    return {
+                        type: key,
+                        name: card.name,
+                        lengths: card.lengths,
+                        cvcLength: card.cvcLength,
+                        cardType: cardType,
+                        icon: card.icon || null
+                    };
+                }
+            }
+            return null;
+        }
+
+        function showFieldError(fieldId, show = true) {
+            const errorElement = document.getElementById(fieldId + '-error');
+            if (errorElement) {
+                if (show) {
+                    errorElement.classList.add('show');
+                } else {
+                    errorElement.classList.remove('show');
+                }
+            }
+        }
+
+        document.addEventListener('DOMContentLoaded', function () {
+            // Country selection and phone code update
+            const countrySelect = document.getElementById('country-select');
+            const countryTrigger = document.getElementById('country-trigger');
+            const countryCodeSpan = document.getElementById('country-code');
+            const phoneInput = document.getElementById('telefono');
+
+            countryTrigger?.addEventListener('click', function (e) {
+                e.stopPropagation();
+                countrySelect.classList.toggle('active');
+                countryTrigger.classList.toggle('active');
             });
-            const data = await response.json();
-            if (!data.success) throw new Error(data.error);
 
-            const { paymentIntent, error } = await stripe.confirmCardPayment(data.clientSecret, {
-                payment_method: {
-                    card: cardNumber,
-                    billing_details: { name: formElements.cardName.value, email: formElements.email.value, phone: formElements.telefono.value, address: { line1: formElements.direccion.value, postal_code: formElements.cardZip.value } }
+            document.querySelectorAll('.select-option').forEach(option => {
+                option.addEventListener('click', function () {
+                    const value = this.getAttribute('data-value');
+                    const code = this.getAttribute('data-code');
+                    const format = this.getAttribute('data-format');
+                    const selectedOption = document.getElementById('selected-country');
+
+                    selectedOption.innerHTML = value;
+                    countryTrigger.classList.add('completed');
+                    countryTrigger.classList.remove('active');
+                    countrySelect.classList.remove('active');
+                    formState.pais = true;
+
+                    // Update country code and phone format
+                    countryCodeSpan.textContent = code;
+                    phoneInput.placeholder = format;
+                    phoneInput.dataset.format = format;
+                    phoneInput.value = ''; // Reset phone input to clear previous value
+
+                    console.log(`Selected country: ${value}, Code: ${code}, Format: ${format}`); // Debug log
+
+                    const iconParent = countryTrigger.closest('.input-group');
+                    const icon = iconParent.querySelector('.input-icon');
+                    if (icon) {
+                        icon.style.opacity = '1';
+                        icon.style.transform = 'scale(1) rotate(0deg)';
+                    }
+
+                    // Trigger phone validation
+                    phoneInput.dispatchEvent(new Event('input'));
+                    checkSectionCompletion();
+                    updateProgressBar();
+                });
+            });
+
+            document.addEventListener('click', function (e) {
+                if (!e.target.closest('.custom-select')) {
+                    countrySelect?.classList.remove('active');
+                    countryTrigger?.classList.remove('active');
                 }
             });
 
-            if (error) throw error;
-            if (paymentIntent && paymentIntent.status === 'succeeded') showSuccess();
-            else throw new Error('El pago no fue exitoso.');
+            // Phone input formatting and validation
+            phoneInput.addEventListener('input', function () {
+                let value = this.value.replace(/\D/g, '');
+                const format = this.dataset.format || '### ### ####';
+                const length = phoneFormats[countrySelect.querySelector('.select-option.completed')?.dataset?.value?.split(' ')[1]]?.length || 10;
 
-        } catch (error) {
-            showError('Error en el Pago', error.message || 'Ocurrió un error inesperado.');
-        } finally {
-            setLoading(false);
-        }
-    });
+                if (value.length > length) {
+                    value = value.substring(0, length);
+                }
 
-    function setLoading(isLoading) {
-        formElements.payButton.disabled = isLoading;
-        formElements.payButton.querySelector('#button-text').textContent = isLoading ? 'Procesando...' : 'Pagar';
-    }
-    function showSuccess() { document.getElementById('success-overlay').classList.add('active'); }
-    function showError(title, message) {
-        document.getElementById('error-title').textContent = title;
-        document.getElementById('error-text').textContent = message;
-        document.getElementById('error-overlay').classList.add('active');
-        document.getElementById('error-modal').classList.add('active');
-    }
-});
-</script>
+                let formattedValue = '';
+                let pos = 0;
+                for (let i = 0; i < format.length && pos < value.length; i++) {
+                    if (format[i] === '#') {
+                        formattedValue += value[pos] || '';
+                        pos++;
+                    } else {
+                        formattedValue += format[i];
+                    }
+                }
+                this.value = formattedValue;
+
+                validateField(this);
+            });
+
+            // Card flip for CVC
+            const cvcInput = document.getElementById('card-cvc');
+            const cardFlipContainer = document.getElementById('card-flip-container');
+
+            if (cvcInput && cardFlipContainer) {
+                cvcInput.addEventListener('focus', function () {
+                    cardFlipContainer.classList.add('flipped');
+                });
+
+                cvcInput.addEventListener('blur', function () {
+                    setTimeout(() => {
+                        if (document.activeElement !== cvcInput) {
+                            cardFlipContainer.classList.remove('flipped');
+                        }
+                    }, 200);
+                });
+            }
+
+            // General field validation
+            ['nombre', 'email', 'telefono', 'compania', 'direccion'].forEach(fieldId => {
+                const field = document.getElementById(fieldId);
+                if (field) {
+                    field.addEventListener('input', function () {
+                        validateField(this);
+                    });
+                    field.addEventListener('blur', function () {
+                        validateField(this);
+                    });
+                }
+            });
+
+            function validateField(field) {
+                const value = field.value.trim();
+                const fieldId = field.id;
+                let isValid = false;
+
+                if (value.length > 0) {
+                    if (fieldId === 'email') {
+                        isValid = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
+                    } else if (fieldId === 'telefono') {
+                        const country = countrySelect.querySelector('.select-option.completed')?.dataset?.value?.split(' ')[1];
+                        const expectedLength = phoneFormats[country]?.length || 10;
+                        const cleanValue = value.replace(/\D/g, '');
+                        isValid = cleanValue.length === expectedLength;
+                    } else {
+                        isValid = value.length > 0;
+                    }
+                }
+
+                formState[fieldId] = isValid;
+
+                if (isValid) {
+                    field.classList.add('completed');
+                    field.classList.remove('invalid');
+                } else {
+                    field.classList.remove('completed');
+                    if (field.value.length > 0 && (fieldId === 'email' || fieldId === 'telefono')) {
+                        field.classList.add('invalid');
+                    } else {
+                        field.classList.remove('invalid');
+                    }
+                }
+
+                const icon = field.closest('.input-group')?.querySelector('.input-icon');
+                if (icon) {
+                    icon.style.opacity = isValid ? '1' : '0';
+                    icon.style.transform = isValid ? 'scale(1) rotate(0deg)' : 'scale(0.5) rotate(-180deg)';
+                }
+
+                checkSectionCompletion();
+                updateProgressBar();
+            }
+
+            // Card number validation
+            document.getElementById('card-number')?.addEventListener('input', function () {
+                let value = this.value.replace(/\D/g, '');
+                if (value.length > 19) value = value.substring(0, 19);
+
+                const cardInfo = detectCardType(value);
+
+                let formattedValue = value;
+                if (cardInfo) {
+                    if (cardInfo.type === 'amex') {
+                        formattedValue = value.replace(/^(\d{4})(\d{6})?(\d{5})?$/, function (match, p1, p2, p3) {
+                            let parts = [p1];
+                            if (p2) parts.push(p2);
+                            if (p3) parts.push(p3);
+                            return parts.join(' ');
+                        });
+                    } else if (cardInfo.type === 'diners' && value.length === 14) {
+                        formattedValue = value.replace(/^(\d{4})(\d{6})(\d{4})$/, '$1 $2 $3');
+                    } else {
+                        formattedValue = value.match(/.{1,4}/g)?.join(' ') || value;
+                    }
+                }
+                this.value = formattedValue;
+
+                document.getElementById('card-display-number').textContent =
+                    formattedValue || '•••• •••• •••• ••••';
+
+                const cardBrand = document.getElementById('card-brand');
+                const cardBrandIcon = document.getElementById('card-brand-icon');
+                const cardFront = document.getElementById('card-front');
+                const cardBack = document.getElementById('card-back');
+                const luhnValidator = document.getElementById('luhn-validator');
+                const luhnText = document.getElementById('luhn-text');
+                const cardTypeDisplay = document.getElementById('card-type-display');
+
+                const iconMap = {
+                    'visa': 'fab fa-cc-visa',
+                    'mastercard': 'fab fa-cc-mastercard',
+                    'amex': 'fab fa-cc-amex',
+                    'discover': 'fab fa-cc-discover',
+                    'diners': 'fab fa-cc-diners-club',
+                    'nu': 'fas fa-piggy-bank',
+                    'plata': 'fas fa-gem'
+                };
+
+                const colorMap = {
+                    'visa': '#1A1F71',
+                    'mastercard': '#EB001B',
+                    'amex': '#006FCF',
+                    'discover': '#FF6000',
+                    'diners': '#004B8D',
+                    'nu': '#A413C5',
+                    'plata': '#20232A'
+                };
+
+                let isValid = false;
+
+                if (value.length > 0 && cardInfo) {
+                    const icon = cardInfo.icon || iconMap[cardInfo.type] || 'fas fa-credit-card';
+                    const color = colorMap[cardInfo.type] || '#5f6368';
+
+                    cardBrand.innerHTML = `<i class="${icon}" style="color: white;"></i>`;
+                    cardBrandIcon.innerHTML = `<i class="${icon}" style="color: ${color};"></i>`;
+                    cardBrandIcon.classList.add('active');
+
+                    cardFront.className = `card-face card-front ${cardInfo.type}`;
+                    cardBack.className = `card-face card-back ${cardInfo.type}`;
+
+                    if (value.length >= 13) {
+                        const isLuhnValid = luhnCheck(value);
+                        const isCorrectLength = cardInfo.lengths.includes(value.length);
+
+                        luhnValidator.classList.add('show');
+
+                        if (isLuhnValid && isCorrectLength) {
+                            isValid = true;
+                            luhnValidator.classList.add('valid');
+                            luhnValidator.classList.remove('invalid');
+                            luhnText.textContent = `${cardInfo.name} válida`;
+                            this.classList.remove('invalid');
+                            this.classList.add('valid');
+                            showFieldError('card-number', false);
+
+                            const typeText = cardInfo.cardType === 'debit' ? 'Débito' : 'Crédito';
+                            cardTypeDisplay.innerHTML = `<span class="card-type-badge ${cardInfo.cardType}">${typeText}</span>`;
+                        } else {
+                            luhnValidator.classList.add('invalid');
+                            luhnValidator.classList.remove('valid');
+                            luhnText.textContent = 'Tarjeta inválida';
+                            this.classList.add('invalid');
+                            this.classList.remove('valid');
+                            showFieldError('card-number', true);
+                            cardTypeDisplay.innerHTML = `<span class="card-type-badge invalid">Inválida</span>`;
+
+                            cardFront.classList.add('card-invalid');
+                            setTimeout(() => cardFront.classList.remove('card-invalid'), 500);
+                        }
+                    } else {
+                        luhnValidator.classList.remove('show');
+                        cardTypeDisplay.innerHTML = '';
+                        this.classList.remove('invalid', 'valid');
+                        showFieldError('card-number', false);
+                    }
+                } else {
+                    cardBrandIcon.classList.remove('active');
+                    cardBrandIcon.innerHTML = '<i class="fas fa-credit-card"></i>';
+                    cardBrand.innerHTML = '<i class="fas fa-credit-card"></i>';
+                    cardFront.className = 'card-face card-front';
+                    cardBack.className = 'card-face card-back';
+                    luhnValidator.classList.remove('show');
+                    cardTypeDisplay.innerHTML = '';
+                    this.classList.remove('invalid', 'valid');
+                    showFieldError('card-number', false);
+                }
+
+                formState.cardNumber = isValid;
+                checkSectionCompletion();
+
+                const cvcInput = document.getElementById('card-cvc');
+                if (cvcInput && cvcInput.value.length > 0) {
+                    cvcInput.dispatchEvent(new Event('input'));
+                }
+            });
+
+            document.getElementById('card-name')?.addEventListener('input', function () {
+                const value = this.value.toUpperCase();
+                this.value = value;
+                document.getElementById('card-display-name').textContent = value || 'NOMBRE APELLIDO';
+
+                const nameRegex = /^[a-zA-ZÀ-ÿ\s]{3,}$/;
+                const isValid = nameRegex.test(value);
+
+                if (value.length >= 3 && isValid) {
+                    this.classList.add('valid');
+                    this.classList.remove('invalid');
+                    showFieldError('card-name', false);
+                    formState.cardName = true;
+                } else if (value.length >= 3 && !isValid) {
+                    this.classList.add('invalid');
+                    this.classList.remove('valid');
+                    showFieldError('card-name', true);
+                    formState.cardName = false;
+                } else {
+                    this.classList.remove('valid', 'invalid');
+                    showFieldError('card-name', false);
+                    formState.cardName = false;
+                }
+
+                checkSectionCompletion();
+            });
+
+            document.getElementById('card-expiry')?.addEventListener('input', function () {
+                let value = this.value.replace(/\D/g, '');
+                if (value.length >= 2) {
+                    value = value.substring(0, 2) + '/' + value.substring(2, 4);
+                }
+                this.value = value;
+
+                document.getElementById('card-display-expiry').textContent = value || 'MM/AA';
+
+                let isValid = false;
+
+                if (value.length === 5) {
+                    const [month, year] = value.split('/').map(Number);
+                    const currentYear = new Date().getFullYear() % 100;
+                    const currentMonth = new Date().getMonth() + 1;
+
+                    if (month >= 1 && month <= 12) {
+                        if (year > currentYear || (year === currentYear && month >= currentMonth)) {
+                            isValid = true;
+                        }
+                    }
+                }
+
+                formState.cardExpiry = isValid;
+
+                if (isValid) {
+                    this.classList.add('valid');
+                    this.classList.remove('invalid');
+                    showFieldError('card-expiry', false);
+                } else if (value.length === 5) {
+                    this.classList.add('invalid');
+                    this.classList.remove('valid');
+                    showFieldError('card-expiry', true);
+                } else {
+                    this.classList.remove('valid', 'invalid');
+                    showFieldError('card-expiry', false);
+                }
+
+                checkSectionCompletion();
+            });
+
+            document.getElementById('card-cvc')?.addEventListener('input', function () {
+                const cardNumberInput = document.getElementById('card-number')?.value.replace(/\s/g, '').replace(/\D/g, '');
+                const cardInfo = detectCardType(cardNumberInput || '');
+                const expectedLength = cardInfo?.cvcLength || 3;
+
+                let value = this.value.replace(/\D/g, '');
+                value = value.substring(0, expectedLength);
+                this.value = value;
+
+                document.getElementById('card-display-cvc').textContent = value || '•••';
+
+                const isValid = value.length === expectedLength;
+                formState.cardCVC = isValid;
+
+                if (isValid) {
+                    this.classList.add('valid');
+                    this.classList.remove('invalid');
+                    showFieldError('card-cvc', false);
+                } else if (value.length > 0 && this.value.length < expectedLength) {
+                    this.classList.remove('valid', 'invalid');
+                    showFieldError('card-cvc', false);
+                } else {
+                    this.classList.remove('valid', 'invalid');
+                    showFieldError('card-cvc', false);
+                }
+
+                if (this.value.length > 0 && !isValid) {
+                    this.classList.add('invalid');
+                } else {
+                    this.classList.remove('invalid');
+                }
+
+                checkSectionCompletion();
+            });
+
+            document.getElementById('card-zip')?.addEventListener('input', function () {
+                const value = this.value.trim();
+                const isValid = /^\d{5}$/.test(value);
+
+                formState.cardZip = isValid;
+
+                if (isValid) {
+                    this.classList.add('valid');
+                    this.classList.remove('invalid');
+                    showFieldError('card-zip', false);
+                } else if (value.length > 0) {
+                    this.classList.add('invalid');
+                    this.classList.remove('valid');
+                    showFieldError('card-zip', true);
+                } else {
+                    this.classList.remove('valid', 'invalid');
+                    showFieldError('card-zip', false);
+                }
+
+                checkSectionCompletion();
+            });
+
+            function updateStep(stepNumber, status) {
+                const step = document.getElementById(`step-${stepNumber}`);
+                if (step) {
+                    step.className = `step ${status}`;
+                }
+            }
+
+            function checkSectionCompletion() {
+                const personalComplete = formState.nombre && formState.email && formState.pais && formState.telefono;
+                const personalHeader = document.getElementById('personal-header');
+                if (personalHeader) {
+                    personalHeader.classList.toggle('completed', personalComplete);
+                }
+
+                const businessComplete = formState.compania && formState.direccion;
+                const businessHeader = document.getElementById('business-header');
+                if (businessHeader) {
+                    businessHeader.classList.toggle('completed', businessComplete);
+                }
+
+                if (personalComplete && businessComplete) {
+                    updateStep(2, 'completed');
+                    updateStep(3, 'active');
+                } else if (personalComplete || businessComplete) {
+                    updateStep(3, 'inactive');
+                }
+
+                const cardComplete = formState.cardNumber && formState.cardName &&
+                    formState.cardExpiry && formState.cardCVC && formState.cardZip;
+                const paymentHeader = document.getElementById('payment-header');
+                if (paymentHeader) {
+                    paymentHeader.classList.toggle('completed', cardComplete);
+                }
+
+                if (cardComplete) {
+                    updateStep(3, 'completed');
+                } else if (personalComplete && businessComplete) {
+                    // Step 3 remains active
+                } else {
+                    updateStep(3, 'inactive');
+                }
+
+                updateProgressBar();
+            }
+
+            function updateProgressBar() {
+                const totalFields = Object.keys(formState).length;
+                const completedFields = Object.values(formState).filter(v => v).length;
+
+                let visualPercentage = 25;
+                if (document.getElementById('step-3').classList.contains('completed')) {
+                    visualPercentage = 75;
+                } else if (document.getElementById('step-2').classList.contains('completed')) {
+                    visualPercentage = 50;
+                } else if (document.getElementById('step-1').classList.contains('completed')) {
+                    visualPercentage = 25;
+                }
+
+                if (document.getElementById('step-3').classList.contains('active') && !document.getElementById('step-3').classList.contains('completed')) {
+                    const cardFields = ['cardNumber', 'cardName', 'cardExpiry', 'cardCVC', 'cardZip'];
+                    const completedCardFields = cardFields.filter(key => formState[key]).length;
+                    visualPercentage = 50 + (completedCardFields / cardFields.length) * 25;
+                }
+
+                const connectorFill = document.getElementById('connector-fill');
+                if (connectorFill) {
+                    connectorFill.style.width = visualPercentage + '%';
+
+                    if (document.getElementById('step-4').classList.contains('completed')) {
+                        connectorFill.style.width = '100%';
+                    }
+                }
+            }
+
+            function showValidationAlert(message) {
+                const alert = document.getElementById('validation-alert');
+                const alertText = document.getElementById('alert-text');
+                if (alert && alertText) {
+                    alertText.textContent = message;
+                    alert.classList.add('show');
+
+                    setTimeout(() => {
+                        alert.classList.remove('show');
+                    }, 3000);
+                }
+            }
+
+            function showErrorModal(title, message) {
+                const overlay = document.getElementById('error-overlay');
+                const modal = document.getElementById('error-modal');
+                const errorTitle = document.getElementById('error-title');
+                const errorText = document.getElementById('error-text');
+
+                if (overlay && modal && errorTitle && errorText) {
+                    errorTitle.textContent = title;
+                    errorText.textContent = message;
+
+                    overlay.style.display = 'flex';
+                    setTimeout(() => {
+                        modal.classList.add('active');
+                    }, 10);
+                }
+            }
+
+            function closeErrorModal() {
+                const overlay = document.getElementById('error-overlay');
+                const modal = document.getElementById('error-modal');
+
+                if (overlay && modal) {
+                    modal.classList.remove('active');
+                    setTimeout(() => {
+                        overlay.style.display = 'none';
+                    }, 300);
+                }
+            }
+
+            document.getElementById('error-button')?.addEventListener('click', closeErrorModal);
+            document.getElementById('error-overlay')?.addEventListener('click', function (e) {
+                if (e.target === this) {
+                    closeErrorModal();
+                }
+            });
+
+            document.getElementById('pay-button')?.addEventListener('click', function () {
+                const allFieldsValid = Object.values(formState).every(v => v);
+
+                if (!allFieldsValid) {
+                    showValidationAlert('Por favor completa todos los campos');
+                    return;
+                }
+
+                // Simulate payment processing
+                const paymentSuccess = Math.random() > 0.2; // 80% chance of success for demo
+
+                if (paymentSuccess) {
+                    const successOverlay = document.getElementById('success-overlay');
+                    const successModal = document.getElementById('success-modal');
+                    if (successOverlay && successModal) {
+                        successOverlay.style.display = 'flex';
+                        setTimeout(() => {
+                            successModal.classList.add('active');
+                        }, 10);
+                        updateStep(4, 'completed');
+                        updateProgressBar();
+                        setTimeout(() => {
+                            alert('Redirigiendo a la página de confirmación...');
+                        }, 3000);
+                    }
+                } else {
+                    showErrorModal('Error en el pago', 'Ha ocurrido un error al procesar tu pago.');
+                }
+            });
+
+            // Initialize steps
+            updateStep(1, 'completed');
+            updateStep(2, 'active');
+            updateProgressBar();
+        });
+    </script>
 </body>
 </html>
